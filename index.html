@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en" id="html-root" class="antialiased">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SharePlate Pro v2 - Live</title>
+    
+    <!-- Deployment Instructions:
+         1. Save this file as "index.html"
+         2. Upload to Netlify, Vercel, or GitHub Pages.
+         3. It will work instantly.
+    -->
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { 
+                        sans: ['Inter', 'sans-serif'],
+                        kurdish: ['Noto Naskh Arabic', 'serif']
+                    },
+                    animation: {
+                        'bounce-slow': 'bounce 3s infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                        'pulse-glow': 'pulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'slide-up': 'slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+                        'scale-in': 'scaleIn 0.2s ease-out'
+                    },
+                    colors: {
+                        dark: {
+                            bg: '#0B1120',
+                            card: '#1E293B',
+                            text: '#E2E8F0'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Icons & Fonts -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Noto+Naskh+Arabic:wght@400;700&display=swap" rel="stylesheet">
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, doc, updateDoc, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- FIREBASE SETUP ---
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Global DB References
+        window.db = db;
+        window.auth = auth;
+        window.signOut = signOut;
+        window.appId = appId;
+        window.collection = collection;
+        window.addDoc = addDoc;
+        window.updateDoc = updateDoc;
+        window.doc = doc;
+        window.arrayUnion = arrayUnion;
+        window.onSnapshot = onSnapshot;
+        window.serverTimestamp = serverTimestamp;
+
+        // --- AUTH & URL MODE LOGIC ---
+        const initAuth = async () => {
+            try {
+                // We always need REAL auth to talk to the DB, even if we fake the User ID later
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth failed", error);
+            }
+        };
+        initAuth();
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                // CHECK URL FOR MODE FORCE
+                const urlParams = new URLSearchParams(window.location.search);
+                const mode = urlParams.get('mode');
+                
+                if (mode === 'guest') {
+                    // FORCE GUEST IDENTITY
+                    // We generate a random ID based on time so it's always unique on reload if needed, 
+                    // or persist it in session to be stable during browse.
+                    let guestId = sessionStorage.getItem('sp_guest_id');
+                    if (!guestId) {
+                        guestId = 'guest_' + Math.floor(Math.random() * 99999);
+                        sessionStorage.setItem('sp_guest_id', guestId);
+                    }
+
+                    window.currentUser = {
+                        uid: guestId,
+                        isAnonymous: true,
+                        isVirtual: true // Flag to know we are spoofing
+                    };
+                    console.log("MODE: Virtual Guest", window.currentUser.uid);
+                } else {
+                    // STANDARD MODE (Owner)
+                    window.currentUser = user;
+                    console.log("MODE: Main User", window.currentUser.uid);
+                }
+
+                window.startRealtimeListeners();
+                
+                // Show status
+                setTimeout(() => {
+                    const status = mode === 'guest' ? "Guest Mode (Requester)" : "Main Mode (Owner)";
+                    if(window.showToast) window.showToast(`Logged in as: ${status}`);
+                    render(); // Re-render to update UI elements based on identity
+                }, 500);
+            }
+        });
+    </script>
+
+    <style>
+        /* Custom Animations */
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        @keyframes pulseGlow { 0%, 100% { opacity: 1; box-shadow: 0 0 0 0px rgba(139, 92, 246, 0.7); } 50% { opacity: .5; box-shadow: 0 0 0 10px rgba(139, 92, 246, 0); } }
+
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .glass { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+        .glass-dark { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+        
+        body { background-color: #0f172a; overflow: hidden; }
+        .font-kurdish { font-family: 'Noto Naskh Arabic', serif; }
+
+        .crt-line { background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2)); background-size: 100% 4px; pointer-events: none; }
+        .page-transition { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    </style>
+</head>
+<body class="flex justify-center items-center min-h-screen text-slate-800 transition-colors duration-500">
+
+    <!-- Device Frame -->
+    <div id="app-frame" class="w-full max-w-md h-[100dvh] sm:h-[850px] bg-slate-50 dark:bg-slate-900 rounded-none sm:rounded-[40px] shadow-2xl overflow-hidden relative flex flex-col sm:border-[10px] border-slate-900 ring-4 ring-slate-900/50 transition-colors duration-300">
+        
+        <!-- Status Bar -->
+        <div class="h-12 w-full absolute top-0 z-40 flex items-center justify-between px-6 text-xs font-bold text-slate-800 dark:text-white pointer-events-none">
+            <span id="clock">9:41</span>
+            <div class="flex gap-1.5">
+                <div class="w-4 h-4 rounded-full bg-slate-900 dark:bg-white flex items-center justify-center"><i data-lucide="wifi" class="w-3 h-3 text-white dark:text-slate-900"></i></div>
+                <div class="w-4 h-4 rounded-full bg-slate-900 dark:bg-white flex items-center justify-center"><i data-lucide="battery" class="w-3 h-3 text-white dark:text-slate-900"></i></div>
+            </div>
+        </div>
+
+        <!-- Dynamic Background -->
+        <div class="absolute inset-0 z-0 opacity-30 pointer-events-none overflow-hidden">
+            <div class="absolute top-[-10%] left-[-10%] w-96 h-96 bg-violet-400 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-float dark:bg-violet-900"></div>
+            <div class="absolute top-[20%] right-[-10%] w-72 h-72 bg-emerald-400 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-float dark:bg-emerald-900" style="animation-delay: 2s"></div>
+            <div class="absolute bottom-[-10%] left-[20%] w-80 h-80 bg-pink-400 rounded-full mix-blend-multiply filter blur-3xl opacity-70 animate-float dark:bg-pink-900" style="animation-delay: 4s"></div>
+        </div>
+
+        <!-- Notifications -->
+        <div id="toast-container" class="absolute top-14 left-0 right-0 z-50 flex flex-col items-center gap-2 pointer-events-none px-4"></div>
+
+        <!-- Online Status Indicator -->
+        <div id="online-status" class="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-black/20 backdrop-blur rounded-full px-2 py-0.5 flex items-center gap-1 opacity-0 transition-opacity">
+            <div class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
+            <span class="text-[9px] text-white font-bold tracking-widest uppercase">Live</span>
+        </div>
+
+        <!-- GOD MODE CONSOLE -->
+        <div id="god-mode" class="absolute inset-0 bg-black z-[100] hidden flex-col font-mono text-xs p-6 overflow-hidden crt-line">
+            <div class="flex justify-between items-center text-emerald-500 border-b border-emerald-900 pb-2 mb-4">
+                <span class="font-bold text-lg glitsch">SYS_ADMIN_ROOT</span>
+                <button onclick="toggleGodMode()" class="text-red-500 hover:bg-red-900/20 px-2 rounded">[EXIT]</button>
+            </div>
+            <div id="god-logs" class="flex-1 overflow-y-auto font-mono text-[10px] text-emerald-400 space-y-1 pb-4 scrollbar-hide"></div>
+        </div>
+
+        <!-- Main Scrollable Area -->
+        <div id="main-content" class="flex-1 overflow-y-auto scrollbar-hide relative z-10 pt-12 pb-24 page-transition">
+            <div class="h-full flex items-center justify-center">
+                <div class="animate-pulse flex flex-col items-center">
+                    <div class="w-12 h-12 border-4 border-violet-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p class="text-slate-400 font-bold text-sm">Connecting to Community...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation Bar -->
+        <div id="nav-bar" class="hidden absolute bottom-0 left-0 right-0 glass dark:glass-dark border-t border-slate-200/50 dark:border-slate-700/50 px-6 py-2 flex justify-between items-end z-30 pb-6 rounded-b-[32px] sm:rounded-b-[28px]">
+            <button onclick="setView('browse')" class="nav-btn w-12 h-12 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-violet-600 transition-colors" id="nav-browse">
+                <i data-lucide="home" class="w-6 h-6"></i>
+                <span class="text-[9px] font-bold">Home</span>
+            </button>
+            <button onclick="setView('map')" class="nav-btn w-12 h-12 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-violet-600 transition-colors" id="nav-map">
+                <i data-lucide="map" class="w-6 h-6"></i>
+                <span class="text-[9px] font-bold">Map</span>
+            </button>
+            
+            <div class="relative -top-6">
+                <button onclick="setView('donate')" class="bg-gradient-to-tr from-violet-600 to-indigo-600 text-white w-16 h-16 rounded-full shadow-lg shadow-violet-500/40 hover:scale-110 active:scale-95 transition-all flex items-center justify-center border-[6px] border-slate-50 dark:border-slate-900 animate-pulse-glow">
+                    <i data-lucide="plus" class="w-8 h-8"></i>
+                </button>
+            </div>
+
+            <button onclick="setView('chat')" class="nav-btn w-12 h-12 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-violet-600 transition-colors relative" id="nav-chat">
+                <i data-lucide="message-circle" class="w-6 h-6"></i>
+                <span class="text-[9px] font-bold">Chat</span>
+            </button>
+            <button onclick="setView('profile')" class="nav-btn w-12 h-12 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-violet-600 transition-colors" id="nav-profile">
+                <i data-lucide="user" class="w-6 h-6"></i>
+                <span class="text-[9px] font-bold">Profile</span>
+            </button>
+        </div>
+
+        <!-- Full Screen Modals (Detail, etc) -->
+        <div id="modal-layer" class="absolute inset-0 z-40 pointer-events-none flex items-end justify-center">
+            <div id="modal-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-300 pointer-events-none" onclick="closeModal()"></div>
+            <div id="modal-sheet" class="bg-white dark:bg-slate-800 w-full h-[90%] rounded-t-[32px] shadow-[0_-10px_40px_rgba(0,0,0,0.3)] transform translate-y-full transition-transform duration-300 flex flex-col overflow-hidden pointer-events-auto">
+                <div class="w-12 h-1.5 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mt-4 mb-2 shrink-0"></div>
+                <div id="modal-content" class="flex-1 overflow-y-auto scrollbar-hide p-6"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- CONFIG & STATE ---
+        const I18N = {
+            en: {
+                welcome: "Good Morning", subtitle: "Let's rescue some food!", search: "Search food...",
+                donateTitle: "Share Food", itemName: "Item Title", post: "Publish Donation", 
+                chat: "Global Rescue Chat", darkmode: "Dark Mode"
+            },
+            ku: {
+                welcome: "Beyani Bash", subtitle: "Ba xwardn rizgarkain!", search: "Garan...",
+                donateTitle: "Bexshini Xwardn", itemName: "Nawi Babat", post: "Bilawkrdnawa", 
+                chat: "Chati Gisti", darkmode: "Tariki"
+            }
+        };
+
+        let state = {
+            view: 'login',
+            user: null,
+            lang: 'en',
+            darkMode: false,
+            activeCategory: 'All',
+            selectedMapItemId: null,
+            donationLocation: null,
+            items: [],
+            chats: [],
+            tapCount: 0,
+            initialLoadComplete: false
+        };
+
+        // --- REALTIME SYNC ---
+        window.startRealtimeListeners = function() {
+            const db = window.db;
+            const appId = window.appId;
+            
+            // Sync Items
+            window.onSnapshot(window.collection(db, 'artifacts', appId, 'public', 'data', 'items'), (snapshot) => {
+                const changes = snapshot.docChanges();
+                state.items = [];
+                snapshot.forEach(doc => {
+                    state.items.push({ id: doc.id, ...doc.data() });
+                });
+                state.items.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+
+                if (state.initialLoadComplete) {
+                    changes.forEach((change) => {
+                        if (change.type === "added") {
+                            const data = change.doc.data();
+                            // Notify if new item and NOT me
+                            if (window.currentUser && data.authorId !== window.currentUser.uid) {
+                                window.showToast(`🔔 New: ${data.title} added!`);
+                            }
+                        }
+                    });
+                } else {
+                    state.initialLoadComplete = true;
+                }
+                
+                if(state.view === 'browse' || state.view === 'map') render();
+                document.getElementById('online-status').style.opacity = '1';
+                
+                const sheet = document.getElementById('modal-sheet');
+                if (!sheet.classList.contains('translate-y-full')) {
+                    const openId = document.getElementById('modal-content').getAttribute('data-id');
+                    if(openId) openDetail(openId); 
+                }
+            });
+
+            // Sync Chat
+            window.onSnapshot(window.collection(db, 'artifacts', appId, 'public', 'data', 'messages'), (snapshot) => {
+                state.chats = [];
+                snapshot.forEach(doc => {
+                    state.chats.push({ id: doc.id, ...doc.data() });
+                });
+                state.chats.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+                if(state.view === 'chat') renderChat(document.getElementById('main-content'));
+            });
+        };
+
+        // --- CORE FUNCTIONS ---
+        function init() {
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) toggleDarkMode(true);
+            setInterval(updateClock, 1000);
+            lucide.createIcons();
+        }
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function t(key) { return I18N[state.lang][key] || key; }
+        
+        function toggleLang() {
+            state.lang = state.lang === 'en' ? 'ku' : 'en';
+            document.body.classList.toggle('font-kurdish', state.lang === 'ku');
+            document.getElementById('html-root').setAttribute('dir', state.lang === 'ku' ? 'rtl' : 'ltr');
+            render();
+        }
+
+        function toggleDarkMode(force) {
+            state.darkMode = force !== undefined ? force : !state.darkMode;
+            document.documentElement.classList.toggle('dark', state.darkMode);
+            render(); 
+        }
+
+        function setView(view) {
+            state.view = view;
+            render();
+            if (navigator.vibrate) navigator.vibrate(10);
+        }
+
+        function handleLogoTap() {
+            state.tapCount++;
+            if (state.tapCount >= 5) { toggleGodMode(); state.tapCount = 0; }
+        }
+
+        function toggleGodMode() {
+            const el = document.getElementById('god-mode');
+            if (el.classList.contains('hidden')) { el.classList.remove('hidden'); el.classList.add('flex'); }
+            else { el.classList.add('hidden'); el.classList.remove('flex'); }
+        }
+
+        // --- SWITCH USER via URL Parameter (Guaranteed Fix) ---
+        window.toggleUserMode = () => {
+            const url = new URL(window.location);
+            if (url.searchParams.get('mode') === 'guest') {
+                url.searchParams.delete('mode'); // Switch back to Main
+            } else {
+                url.searchParams.set('mode', 'guest'); // Switch to Guest
+            }
+            window.location.href = url.toString();
+        };
+
+        window.showToast = function(msg, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const el = document.createElement('div');
+            const bg = type === 'success' ? 'bg-emerald-500' : 'bg-slate-800';
+            el.className = `${bg} text-white text-xs font-bold px-4 py-3 rounded-2xl shadow-lg flex items-center gap-2 animate-scale-in backdrop-blur-md bg-opacity-90`;
+            el.innerHTML = type === 'success' ? `<i data-lucide="check-circle" class="w-4 h-4"></i> ${msg}` : `<i data-lucide="alert-circle" class="w-4 h-4"></i> ${msg}`;
+            container.appendChild(el);
+            lucide.createIcons();
+            setTimeout(() => {
+                el.style.opacity = '0';
+                el.style.transform = 'translateY(-20px)';
+                setTimeout(() => el.remove(), 300);
+            }, 3000);
+        }
+
+        // --- BUSINESS LOGIC ---
+
+        async function handleRequestItem(itemId) {
+            if (!window.currentUser) return;
+            const msgInput = document.getElementById('request-message');
+            const message = msgInput ? msgInput.value : '';
+            
+            try {
+                const itemRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'items', itemId);
+                await window.updateDoc(itemRef, {
+                    requests: window.arrayUnion({
+                        userId: window.currentUser.uid,
+                        userName: `User ${window.currentUser.uid.slice(0,4)}`,
+                        message: message, 
+                        timestamp: Date.now()
+                    })
+                });
+                window.showToast("Request Sent!");
+            } catch (e) {
+                console.error(e);
+                window.showToast("Request Failed", "error");
+            }
+        }
+
+        async function handleAcceptRequest(itemId, requesterId) {
+            if (!window.currentUser) return;
+            try {
+                const itemRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'items', itemId);
+                await window.updateDoc(itemRef, {
+                    status: 'claimed',
+                    claimedBy: requesterId
+                });
+                window.showToast("Item Assigned!");
+                closeModal();
+            } catch (e) {
+                console.error(e);
+                window.showToast("Action Failed", "error");
+            }
+        }
+
+        // --- RENDERERS ---
+
+        function render() {
+            const main = document.getElementById('main-content');
+            const nav = document.getElementById('nav-bar');
+
+            if (state.view === 'login' || state.view === 'pick_location') nav.classList.add('hidden');
+            else {
+                nav.classList.remove('hidden');
+                document.querySelectorAll('.nav-btn').forEach(btn => {
+                    btn.classList.remove('text-violet-600', 'dark:text-violet-400');
+                    btn.classList.add('text-slate-400');
+                });
+                const activeBtn = document.getElementById(`nav-${state.view}`);
+                if(activeBtn) {
+                    activeBtn.classList.add('text-violet-600', 'dark:text-violet-400');
+                    activeBtn.classList.remove('text-slate-400');
+                }
+            }
+
+            switch(state.view) {
+                case 'login': renderLogin(main); break;
+                case 'browse': renderBrowse(main); break;
+                case 'map': renderMap(main); break;
+                case 'donate': renderDonate(main); break;
+                case 'pick_location': renderLocationPicker(main); break;
+                case 'chat': renderChat(main); break;
+                case 'profile': renderProfile(main); break;
+            }
+            lucide.createIcons();
+        }
+
+        function renderLogin(container) {
+            container.innerHTML = `
+                <div class="flex flex-col h-full justify-center px-8 relative overflow-hidden">
+                    <div class="relative z-10 text-center animate-slide-up">
+                        <div onclick="handleLogoTap()" class="w-28 h-28 bg-gradient-to-tr from-violet-600 to-indigo-600 rounded-[32px] mx-auto mb-8 flex items-center justify-center text-white shadow-2xl shadow-violet-500/30 transform -rotate-6 active:scale-95 transition-transform cursor-pointer">
+                            <i data-lucide="chef-hat" class="w-14 h-14"></i>
+                        </div>
+                        <h1 class="text-4xl font-black text-slate-900 dark:text-white mb-2 tracking-tight">SharePlate</h1>
+                        <p class="text-slate-500 dark:text-slate-400 font-medium text-lg mb-10">${t('subtitle')}</p>
+                        <button onclick="setView('browse'); window.showToast('Welcome!');" class="w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex justify-center gap-2 items-center text-lg">
+                            Start Exploring <i data-lucide="arrow-right" class="w-5 h-5 rtl:rotate-180"></i>
+                        </button>
+                    </div>
+                </div>`;
+        }
+
+        function renderBrowse(container) {
+            const categories = ['All', 'Bakery', 'Meals', 'Grocery'];
+            const catsHtml = categories.map(c => `
+                <button onclick="state.activeCategory='${c}'; render()" class="px-5 py-2 rounded-full text-xs font-bold transition-all ${state.activeCategory === c ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-lg' : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-100 dark:border-slate-700'}">
+                    ${t(c.toLowerCase())}
+                </button>
+            `).join('');
+
+            const filteredItems = state.items.filter(i => state.activeCategory === 'All' || i.type === state.activeCategory);
+            
+            let itemsHtml = filteredItems.map(item => {
+                const isClaimed = item.status === 'claimed';
+                const opacity = isClaimed ? 'opacity-50 grayscale' : '';
+                return `
+                    <div class="bg-white dark:bg-slate-800 rounded-[32px] p-4 shadow-sm border border-slate-100 dark:border-slate-700/50 mb-4 animate-scale-in relative group ${opacity}" onclick="openDetail('${item.id}')">
+                        <div class="flex gap-4">
+                            <div class="w-28 h-28 rounded-2xl bg-gradient-to-br ${item.bg || 'from-gray-400 to-slate-500'} flex items-center justify-center text-5xl shadow-inner shrink-0 relative overflow-hidden">
+                                ${item.img}
+                                ${isClaimed ? `<div class="absolute inset-0 bg-black/50 flex items-center justify-center text-xs font-black text-white uppercase -rotate-12 tracking-widest border-2 border-white">CLAIMED</div>` : ''}
+                                <div class="absolute bottom-2 right-2 w-8 h-8 rounded-full border-2 border-white dark:border-slate-800 overflow-hidden shadow-sm">
+                                    <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=${item.authorId}" alt="auth" class="w-full h-full bg-slate-200">
+                                </div>
+                            </div>
+                            <div class="flex-1 py-1 flex flex-col justify-between">
+                                <div>
+                                    <div class="flex justify-between items-start">
+                                        <span class="text-[10px] font-extrabold tracking-wider uppercase text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-lg">${item.type}</span>
+                                        ${isClaimed ? '' : `<i data-lucide="heart" class="w-5 h-5 text-slate-300"></i>`}
+                                    </div>
+                                    <h3 class="font-bold text-lg text-slate-800 dark:text-white leading-tight mt-1 mb-1">${item.title}</h3>
+                                    <p class="text-xs font-medium text-slate-500 dark:text-slate-400">Added by ${item.author || 'Anonymous'}</p>
+                                </div>
+                                <div class="flex justify-between items-end">
+                                    <div class="flex items-center gap-1 text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-2 py-1 rounded-lg">
+                                        <i data-lucide="map-pin" class="w-3 h-3"></i> ${item.locationName ? item.locationName.split(' ')[0] : 'Nearby'}
+                                    </div>
+                                    <div class="font-bold text-emerald-600 dark:text-emerald-400">${item.price}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = `
+                <div class="px-0 pb-10">
+                    <div class="px-6 mb-6 flex justify-between items-center">
+                        <div>
+                            <p class="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider mb-0.5">${t('welcome')}</p>
+                            <h2 class="text-2xl font-black text-slate-900 dark:text-white">User ${window.currentUser?.uid.slice(0,4)}</h2>
+                        </div>
+                        <div class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden border-2 border-white dark:border-slate-600">
+                            <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=${window.currentUser?.uid}" alt="avatar">
+                        </div>
+                    </div>
+                    <div class="px-6 mb-8">
+                        <div class="relative">
+                            <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400"></i>
+                            <input type="text" placeholder="${t('search')}" class="w-full bg-white dark:bg-slate-800 border-none shadow-sm rounded-2xl py-3 pl-12 pr-4 font-bold text-slate-700 dark:text-white outline-none ring-1 ring-slate-100 dark:ring-slate-700 focus:ring-violet-500 transition-all">
+                        </div>
+                    </div>
+                    <div class="flex gap-2 px-6 overflow-x-auto scrollbar-hide mb-6">${catsHtml}</div>
+                    <div class="px-6 pb-20">${itemsHtml}</div>
+                </div>
+            `;
+        }
+
+        function renderMap(container) {
+            const itemsToShow = state.items.filter(i => (state.activeCategory === 'All' || i.type === state.activeCategory) && i.status !== 'claimed');
+            const activeItem = state.selectedMapItemId ? state.items.find(i => i.id === state.selectedMapItemId) : null;
+
+            container.innerHTML = `
+                <div class="w-full h-full relative bg-slate-100 dark:bg-slate-900 overflow-hidden group">
+                    <div class="absolute inset-0 opacity-10 dark:opacity-20 pointer-events-none" style="background-image: linear-gradient(rgba(99, 102, 241, 0.2) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 102, 241, 0.2) 1px, transparent 1px); background-size: 40px 40px;"></div>
+                    <svg id="map-routes" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
+                    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full border border-violet-500/10 dark:border-violet-400/10 animate-[spin_8s_linear_infinite] pointer-events-none"><div class="w-1/2 h-1/2 bg-gradient-to-br from-transparent to-violet-500/10 rounded-tl-full"></div></div>
+                    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
+                        <div class="relative"><div class="w-16 h-16 bg-violet-500/20 rounded-full animate-pulse absolute -top-4 -left-4"></div><div class="w-8 h-8 bg-violet-600 rounded-full border-4 border-white dark:border-slate-900 shadow-xl flex items-center justify-center relative z-10"><i data-lucide="navigation" class="w-3 h-3 text-white fill-current"></i></div></div>
+                    </div>
+                    ${itemsToShow.map(i => {
+                        if (!i.coords) { const hash = i.id.split('').reduce((a,b)=>a+b.charCodeAt(0),0); i.coords = { top: 20 + (hash % 60), left: 10 + (hash % 80) }; }
+                        const isSelected = state.selectedMapItemId === i.id;
+                        return `<div class="absolute transition-all duration-500 z-30" style="top: ${i.coords.top}%; left: ${i.coords.left}%; transform: translate(-50%, -100%) ${isSelected ? 'scale(1.2)' : 'scale(1)'};" onclick="handleMapPinClick('${i.id}', ${i.coords.top}, ${i.coords.left})"><div class="flex flex-col items-center group/pin"><div class="w-12 h-12 rounded-full bg-gradient-to-br ${i.bg || 'from-gray-400 to-gray-600'} border-4 ${isSelected ? 'border-violet-500' : 'border-white dark:border-slate-800'} shadow-xl flex items-center justify-center text-xl relative z-10 transition-colors cursor-pointer hover:scale-110">${i.img}</div><div class="w-1 h-3 bg-slate-400 dark:bg-slate-600 rounded-full -mt-1"></div><div class="w-8 h-2 bg-black/20 blur-sm rounded-full mt-[-2px]"></div></div></div>`;
+                    }).join('')}
+                    ${activeItem ? `<div class="absolute bottom-24 left-4 right-4 z-40 animate-slide-up"><div class="bg-white dark:bg-slate-800 p-4 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 flex gap-4 items-center relative overflow-hidden"><div class="w-16 h-16 rounded-2xl bg-gradient-to-br ${activeItem.bg} flex items-center justify-center text-3xl shadow-inner shrink-0 relative">${activeItem.img}</div><div class="flex-1 min-w-0"><h3 class="font-bold text-slate-900 dark:text-white truncate">${activeItem.title}</h3><p class="text-xs text-slate-500 dark:text-slate-400 font-medium">${activeItem.author}</p></div><button onclick="openDetail('${activeItem.id}')" class="w-10 h-10 bg-slate-900 dark:bg-white rounded-full flex items-center justify-center text-white dark:text-slate-900 shadow-lg active:scale-90 transition-transform"><i data-lucide="arrow-right" class="w-5 h-5"></i></button><button onclick="state.selectedMapItemId=null; render()" class="absolute top-2 right-2 text-slate-400 hover:text-red-500 p-1"><i data-lucide="x" class="w-4 h-4"></i></button></div></div>` : ''}
+                </div>
+            `;
+            if(activeItem) setTimeout(() => drawRoute(activeItem.coords), 50);
+        }
+        
+        function handleMapPinClick(id, top, left) { state.selectedMapItemId = id; render(); }
+        
+        function drawRoute(targetCoords) {
+            const svg = document.getElementById('map-routes');
+            if(!svg) return;
+            const endX = targetCoords.left;
+            const endY = targetCoords.top;
+            svg.innerHTML = `<defs><linearGradient id="lineGrad"><stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.2"/><stop offset="100%" stop-color="#8b5cf6" stop-opacity="1"/></linearGradient></defs><line x1="50%" y1="50%" x2="${endX}%" y2="${endY}%" stroke="url(#lineGrad)" stroke-width="4" stroke-dasharray="8,8" stroke-linecap="round" class="animate-pulse" /><circle cx="${endX}%" cy="${endY}%" r="4" fill="#8b5cf6" class="animate-ping" />`;
+        }
+
+        async function submitMessage() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text || !window.currentUser) return;
+            input.value = '';
+            try { await window.addDoc(window.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'messages'), { text: text, senderId: window.currentUser.uid, senderName: `User ${window.currentUser.uid.slice(0,4)}`, timestamp: window.serverTimestamp() }); } catch (e) { window.showToast("Failed to send", "error"); }
+        }
+
+        function renderChat(container) {
+            const currentUid = window.currentUser ? window.currentUser.uid : '';
+            const messagesHtml = state.chats.map(msg => {
+                const isMe = msg.senderId === currentUid;
+                return `<div class="flex ${isMe ? 'justify-end' : 'justify-start'} mb-4"><div class="max-w-[80%] ${isMe ? 'bg-violet-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-tl-none'} p-3 rounded-2xl shadow-sm border border-transparent ${!isMe ? 'dark:border-slate-700' : ''}">${!isMe ? `<div class="text-[9px] font-bold text-slate-400 mb-1">${msg.senderName}</div>` : ''}<p class="text-sm font-medium">${msg.text}</p></div></div>`;
+            }).join('');
+            container.innerHTML = `<div class="flex flex-col h-full bg-slate-50 dark:bg-slate-900/50"><div class="px-6 pt-6 pb-2"><h2 class="text-2xl font-black text-slate-900 dark:text-white">${t('chat')}</h2><div class="flex items-center gap-2 mt-2"><div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div><span class="text-xs font-bold text-slate-500">${state.chats.length} messages live</span></div></div><div class="flex-1 overflow-y-auto p-6 scrollbar-hide flex flex-col-reverse"><div class="flex flex-col">${messagesHtml.length ? messagesHtml : '<div class="text-center text-slate-400 text-sm mt-10">No messages yet. Say hello!</div>'}</div></div><div class="p-4 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700 z-10"><form onsubmit="event.preventDefault(); submitMessage()" class="flex gap-2"><input id="chat-input" type="text" placeholder="Type a message..." class="flex-1 bg-slate-100 dark:bg-slate-700 border-none rounded-xl px-4 py-3 font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-violet-500"><button type="submit" class="w-12 h-12 bg-violet-600 rounded-xl flex items-center justify-center text-white shadow-lg active:scale-95 transition-transform"><i data-lucide="send" class="w-5 h-5"></i></button></form></div></div>`;
+        }
+
+        function renderLocationPicker(container) {
+            container.innerHTML = `<div class="relative w-full h-full bg-slate-100 dark:bg-slate-900"><div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(#6366f1 2px, transparent 2px); background-size: 30px 30px;"></div><div class="absolute top-0 left-0 right-0 p-6 z-20"><button onclick="setView('donate')" class="bg-white dark:bg-slate-800 p-3 rounded-full shadow-lg border border-slate-100 dark:border-slate-700"><i data-lucide="arrow-left" class="w-5 h-5 text-slate-700 dark:text-white"></i></button></div><div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none"><div class="relative"><div class="w-12 h-12 text-violet-600 dark:text-violet-400 drop-shadow-2xl animate-bounce"><i data-lucide="map-pin" class="w-full h-full fill-current"></i></div><div class="w-4 h-1.5 bg-black/20 rounded-full blur-[2px] absolute bottom-0 left-1/2 -translate-x-1/2"></div></div></div><div class="absolute bottom-6 left-6 right-6 z-20"><div class="bg-white dark:bg-slate-800 p-4 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 mb-4 animate-slide-up"><h3 class="font-bold text-slate-900 dark:text-white flex items-center gap-2"><i data-lucide="navigation" class="w-4 h-4 text-violet-500"></i> Salim St. Market</h3><p class="text-xs text-slate-500 dark:text-slate-400">Slemany, Iraq</p></div><button onclick="state.donationLocation='Salim St. Market'; setView('donate'); window.showToast('Location Selected')" class="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all">Confirm Location</button></div></div>`;
+        }
+
+        async function submitDonationLive() {
+             const title = document.getElementById('input-title').value;
+             const type = document.getElementById('input-type').value;
+             const price = document.getElementById('input-qty').value + ' Qty'; 
+             
+             if (!title || !state.donationLocation || !window.currentUser) { window.showToast("Missing info!", "error"); return; }
+             let img = '📦';
+             let bg = 'from-gray-400 to-gray-500';
+             if (type === 'Bakery') { img='🥖'; bg='from-orange-400 to-red-500'; }
+             if (type === 'Meals') { img='🍲'; bg='from-green-400 to-emerald-600'; }
+             if (type === 'Grocery') { img='🥦'; bg='from-green-300 to-teal-500'; }
+
+             try {
+                window.showToast("Publishing...", "success");
+                await window.addDoc(window.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'items'), {
+                    title, type, price, locationName: state.donationLocation,
+                    author: `User ${window.currentUser.uid.slice(0,4)}`,
+                    authorId: window.currentUser.uid,
+                    img, bg, timestamp: window.serverTimestamp(),
+                    status: 'available', requests: []
+                });
+                window.showToast("Item is Live on Map!"); setView('browse');
+             } catch(e) { console.error(e); window.showToast("Error publishing", "error"); }
+        }
+
+        function renderDonate(container) {
+            const loc = state.donationLocation;
+            container.innerHTML = `<div class="p-6 h-full flex flex-col animate-slide-up"><h2 class="text-2xl font-black text-slate-900 dark:text-white mb-6">${t('donateTitle')}</h2><div class="flex-1 space-y-6"><div><label class="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Pick Location</label><div onclick="setView('pick_location')" class="w-full h-32 rounded-3xl border-2 ${loc ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20' : 'border-dashed border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800/50'} flex flex-col items-center justify-center gap-2 text-slate-400 cursor-pointer transition-all overflow-hidden relative group">${loc ? `<div class="absolute inset-0 opacity-20 bg-[url('https://api.dicebear.com/7.x/identicon/svg?seed=map')] bg-cover"></div><div class="relative z-10 flex flex-col items-center"><div class="w-10 h-10 bg-violet-500 rounded-full flex items-center justify-center text-white shadow-lg mb-1"><i data-lucide="map-pin" class="w-5 h-5 fill-current"></i></div><span class="text-sm font-bold text-violet-700 dark:text-violet-300">${loc}</span><span class="text-[10px] font-bold text-violet-400 dark:text-violet-500">Tap to change</span></div>` : `<div class="w-12 h-12 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform"><i data-lucide="map" class="w-6 h-6 text-slate-500 dark:text-slate-400"></i></div><span class="text-xs font-bold text-slate-500 dark:text-slate-400">Choose on Map</span>`}</div></div><div><label class="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">${t('itemName')}</label><input id="input-title" type="text" class="w-full bg-white dark:bg-slate-800 border-none shadow-sm rounded-2xl py-4 px-4 font-bold text-slate-700 dark:text-white outline-none ring-1 ring-slate-100 dark:ring-slate-700 focus:ring-violet-500"></div><div class="grid grid-cols-2 gap-4"><div><label class="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Type</label><select id="input-type" class="w-full bg-white dark:bg-slate-800 border-none shadow-sm rounded-2xl py-4 px-4 font-bold text-slate-700 dark:text-white outline-none ring-1 ring-slate-100 dark:ring-slate-700 focus:ring-violet-500 appearance-none"><option>Meals</option><option>Bakery</option><option>Grocery</option></select></div><div><label class="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">Qty</label><input id="input-qty" type="number" value="1" class="w-full bg-white dark:bg-slate-800 border-none shadow-sm rounded-2xl py-4 px-4 font-bold text-slate-700 dark:text-white outline-none ring-1 ring-slate-100 dark:ring-slate-700 focus:ring-violet-500"></div></div><button onclick="submitDonationLive()" class="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex justify-center gap-2 items-center mt-auto" ${!loc ? 'disabled style="opacity:0.5"' : ''}>${t('post')} <i data-lucide="check" class="w-5 h-5"></i></button></div></div>`;
+        }
+
+        function renderProfile(container) {
+            // Check URL Mode
+            const urlParams = new URLSearchParams(window.location.search);
+            const isGuest = urlParams.get('mode') === 'guest';
+
+            container.innerHTML = `
+                <div class="p-6 pb-24">
+                    <div class="flex flex-col items-center mb-8">
+                        <div class="w-28 h-28 rounded-full border-4 border-white dark:border-slate-800 shadow-2xl overflow-hidden mb-4 relative">
+                            <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=${window.currentUser ? window.currentUser.uid : 'guest'}" alt="avatar" class="w-full h-full bg-slate-200">
+                        </div>
+                        <h2 class="text-2xl font-black text-slate-900 dark:text-white">User ${window.currentUser ? window.currentUser.uid.slice(0,4) : 'Guest'}</h2>
+                        <span class="text-sm font-bold text-violet-500 bg-violet-50 dark:bg-violet-900/20 px-3 py-1 rounded-full mt-2">
+                            ${isGuest ? 'Guest Mode (URL)' : 'Main Account'}
+                        </span>
+                        <p class="text-[10px] text-slate-400 mt-2">Current ID: ${window.currentUser.uid}</p>
+                    </div>
+                    <div class="bg-white dark:bg-slate-800 rounded-3xl overflow-hidden border border-slate-100 dark:border-slate-700">
+                        <!-- URL Switch Toggle -->
+                        <div class="p-4 flex items-center justify-between cursor-pointer hover:bg-violet-50 dark:hover:bg-slate-700/50 transition-colors" onclick="window.toggleUserMode()">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center"><i data-lucide="repeat" class="w-5 h-5 text-violet-600 dark:text-violet-400"></i></div>
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-slate-800 dark:text-white">${isGuest ? 'Switch to Main Link' : 'Switch to Guest Link'}</span>
+                                    <span class="text-[10px] text-slate-400">Forces new URL parameter</span>
+                                </div>
+                            </div>
+                            <i data-lucide="chevron-right" class="w-5 h-5 text-slate-300"></i>
+                        </div>
+
+                        <div class="p-4 flex items-center justify-between border-t border-slate-100 dark:border-slate-700">
+                            <div class="flex items-center gap-3">
+                                <div class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center"><i data-lucide="moon" class="w-4 h-4 text-slate-600 dark:text-slate-300"></i></div>
+                                <span class="font-bold text-slate-700 dark:text-white">${t('darkmode')}</span>
+                            </div>
+                            <button onclick="toggleDarkMode()" class="w-12 h-6 rounded-full bg-slate-200 dark:bg-violet-600 relative transition-colors">
+                                <div class="w-4 h-4 bg-white rounded-full shadow-sm absolute top-1 transition-all ${state.darkMode ? 'left-7' : 'left-1'}"></div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- MODAL LOGIC (UPDATED FOR REQUESTS) ---
+        function openDetail(id) {
+            const item = state.items.find(i => i.id === id);
+            if (!item) return;
+            if (!window.currentUser) return;
+
+            // Set data-id for realtime updates
+            document.getElementById('modal-content').setAttribute('data-id', id);
+
+            const isOwner = item.authorId === window.currentUser.uid;
+            const isClaimed = item.status === 'claimed';
+            const hasRequested = item.requests && item.requests.some(r => r.userId === window.currentUser.uid);
+
+            const sheet = document.getElementById('modal-sheet');
+            const backdrop = document.getElementById('modal-backdrop');
+            const layer = document.getElementById('modal-layer');
+            const content = document.getElementById('modal-content');
+
+            layer.classList.remove('pointer-events-none');
+            backdrop.classList.remove('opacity-0', 'pointer-events-none');
+            sheet.classList.remove('translate-y-full');
+
+            let actionArea = '';
+
+            // LOGIC FOR OWNER vs SEEKER
+            if (isOwner) {
+                if (isClaimed) {
+                    actionArea = `
+                        <div class="w-full bg-emerald-50 dark:bg-emerald-900/30 p-4 rounded-2xl flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-100 dark:border-emerald-800">
+                            <i data-lucide="check-circle" class="w-5 h-5"></i> Claimed by User ${item.claimedBy.slice(0,4)}
+                        </div>`;
+                } else if (item.requests && item.requests.length > 0) {
+                    const reqList = item.requests.map(req => `
+                        <div class="flex flex-col bg-slate-50 dark:bg-slate-700/50 p-4 rounded-2xl mb-2 border border-slate-100 dark:border-slate-600">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="text-sm font-bold text-slate-700 dark:text-white flex items-center gap-2">
+                                    <div class="w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center text-[10px]">👤</div>
+                                    ${req.userName}
+                                </span>
+                                <span class="text-[10px] text-slate-400">Just now</span>
+                            </div>
+                            <div class="bg-white dark:bg-slate-800 p-3 rounded-xl text-xs text-slate-600 dark:text-slate-300 italic mb-3 border border-slate-100 dark:border-slate-700">
+                                "${req.message || 'I would like to request this item.'}"
+                            </div>
+                            <button onclick="handleAcceptRequest('${item.id}', '${req.userId}')" class="w-full bg-violet-600 text-white text-sm font-bold py-3 rounded-xl hover:bg-violet-700 shadow-md active:scale-95 transition-transform flex justify-center items-center gap-2">
+                                Accept Request <i data-lucide="check" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    `).join('');
+                    actionArea = `
+                        <h3 class="font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                            Incoming Requests <span class="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">${item.requests.length}</span>
+                        </h3>
+                        <div class="mb-4">${reqList}</div>
+                        <p class="text-xs text-slate-400 text-center">Accepting will remove this item from map.</p>
+                    `;
+                } else {
+                    actionArea = `<div class="text-center text-slate-400 text-sm font-bold p-6 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center gap-2"><i data-lucide="inbox" class="w-8 h-8 opacity-50"></i>No requests yet.</div>`;
+                }
+            } else {
+                // VIEWER LOGIC
+                if (isClaimed) {
+                    actionArea = `<button disabled class="w-full bg-slate-200 dark:bg-slate-700 text-slate-400 font-bold py-4 rounded-2xl">Item Already Claimed</button>`;
+                } else if (hasRequested) {
+                    actionArea = `<button disabled class="w-full bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-300 font-bold py-4 rounded-2xl flex justify-center items-center gap-2"><i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Request Pending...</button>`;
+                } else {
+                    actionArea = `
+                        <div class="bg-slate-50 dark:bg-slate-700/30 p-1 rounded-2xl mb-4 border border-slate-200 dark:border-slate-700">
+                            <textarea id="request-message" rows="2" class="w-full bg-transparent p-3 text-sm font-medium text-slate-700 dark:text-white placeholder-slate-400 outline-none resize-none" placeholder="Add a message (e.g. I can pick up in 10 mins)..."></textarea>
+                        </div>
+                        <button onclick="handleRequestItem('${item.id}')" class="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold py-4 rounded-2xl shadow-xl flex items-center justify-center gap-2 text-lg active:scale-95 transition-transform">
+                            Send Request <i data-lucide="send" class="w-5 h-5"></i>
+                        </button>
+                    `;
+                }
+            }
+
+            content.innerHTML = `
+                <div class="w-full h-64 rounded-[32px] bg-gradient-to-br ${item.bg} flex items-center justify-center text-9xl shadow-lg mb-6 relative overflow-hidden">
+                    <div class="absolute inset-0 bg-black/10"></div>
+                    <span class="relative z-10 animate-float">${item.img}</span>
+                </div>
+                <div class="flex justify-between items-start mb-2">
+                    <h2 class="text-3xl font-black text-slate-900 dark:text-white">${item.title}</h2>
+                    <div class="text-xl font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-3 py-1 rounded-xl">${item.price}</div>
+                </div>
+                <p class="text-lg font-medium text-slate-500 dark:text-slate-400 mb-6">Added by ${item.author} • <span class="text-emerald-500">Available Now</span></p>
+                ${actionArea}
+            `;
+            lucide.createIcons();
+        }
+
+        function closeModal() {
+            document.getElementById('modal-sheet').classList.add('translate-y-full');
+            document.getElementById('modal-backdrop').classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => { document.getElementById('modal-layer').classList.add('pointer-events-none'); }, 300);
+        }
+
+        init();
+
+    </script>
+</body>
+</html>
