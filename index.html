@@ -92,6 +92,7 @@
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'shareplate-global-v2';
         window.db = db;
         window.auth = auth;
+        window.signInAnonymously = signInAnonymously; // Expose for retry
         window.signOut = signOut;
         window.appId = appId;
         window.collection = collection;
@@ -174,12 +175,23 @@
                         if(window.showToast) window.showToast(`Connected: ${status}`);
                         // Update UI to show connected state
                         const indicator = document.getElementById('connection-indicator');
+                        const statusText = document.getElementById('connection-status-text');
                         if(indicator) {
                             indicator.classList.remove('bg-red-500');
                             indicator.classList.add('bg-emerald-500', 'animate-pulse');
                         }
+                        if(statusText) statusText.innerText = "Online";
                         if(window.render) window.render(); 
                     }, 500);
+                } else {
+                    window.currentUser = null;
+                    const indicator = document.getElementById('connection-indicator');
+                    const statusText = document.getElementById('connection-status-text');
+                    if(indicator) {
+                        indicator.classList.add('bg-red-500');
+                        indicator.classList.remove('bg-emerald-500', 'animate-pulse');
+                    }
+                    if(statusText) statusText.innerText = "Offline";
                 }
             });
         }
@@ -223,8 +235,11 @@
         <div class="h-12 w-full absolute top-0 z-40 flex items-center justify-between px-6 text-xs font-bold text-slate-800 dark:text-white pointer-events-none">
             <span id="clock">9:41</span>
             <div class="flex gap-2 items-center">
-                <div id="connection-indicator" class="w-2 h-2 rounded-full bg-red-500 transition-colors duration-500"></div>
-                <div class="flex gap-1.5">
+                <div class="flex items-center gap-1 bg-black/10 dark:bg-white/10 px-2 py-0.5 rounded-full backdrop-blur-sm">
+                    <div id="connection-indicator" class="w-2 h-2 rounded-full bg-red-500 transition-colors duration-500"></div>
+                    <span id="connection-status-text" class="text-[9px] font-bold opacity-80">Offline</span>
+                </div>
+                <div class="flex gap-1.5 ml-1">
                     <div class="w-4 h-4 rounded-full bg-slate-900 dark:bg-white flex items-center justify-center"><i data-lucide="wifi" class="w-3 h-3 text-white dark:text-slate-900"></i></div>
                     <div class="w-4 h-4 rounded-full bg-slate-900 dark:bg-white flex items-center justify-center"><i data-lucide="battery" class="w-3 h-3 text-white dark:text-slate-900"></i></div>
                 </div>
@@ -542,8 +557,21 @@
              const title = document.getElementById('input-title').value;
              // Ensure user is authenticated before submitting
              if (!window.currentUser) { 
-                 window.showToast("Not Authenticated!", "error"); 
-                 return; 
+                 window.showToast("⚠️ Reconnecting...", "normal");
+                 try {
+                    await window.signInAnonymously(window.auth);
+                    if (window.auth.currentUser) {
+                        window.currentUser = window.auth.currentUser;
+                        window.showToast("Connected! Try again.", "success");
+                    } else {
+                        throw new Error("Login failed");
+                    }
+                 } catch(e) {
+                     console.error(e);
+                     window.showToast("Login Failed: Check Network", "error");
+                     return;
+                 }
+                 return; // Require user to click again to confirm
              }
              if (!title || !state.donationLocation || !window.isConfigured) { 
                  window.showToast("Missing info or keys!", "error"); 
