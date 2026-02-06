@@ -106,7 +106,6 @@
         // Auth Logic
         const initAuth = async () => {
             if (!isConfigured) {
-                // Show setup screen if no keys
                 setTimeout(() => {
                     if (document.getElementById('setup-screen')) {
                         document.getElementById('setup-screen').classList.remove('hidden');
@@ -124,7 +123,27 @@
                 }
             } catch (error) {
                 console.error("Auth failed", error);
-                if(window.showToast) window.showToast("Authentication Failed", "error");
+                
+                // Detailed Error Messages for better debugging
+                let errorMsg = "Authentication Failed";
+                let errorDetail = "Check console for details";
+                
+                if (error.code === 'auth/operation-not-allowed') {
+                    errorMsg = "Setup Required";
+                    errorDetail = "Enable 'Anonymous' in Firebase Console > Authentication > Sign-in method";
+                } else if (error.code === 'auth/unauthorized-domain') {
+                    errorMsg = "Domain Blocked";
+                    errorDetail = "Add this domain to Firebase Console > Authentication > Settings > Authorized domains";
+                } else if (error.code === 'auth/api-key-not-valid') {
+                    errorMsg = "Invalid API Key";
+                    errorDetail = "Check your config keys";
+                }
+
+                if(window.showToast) {
+                    window.showToast(errorMsg, "error");
+                    // Show a second toast with the detail after a short delay
+                    setTimeout(() => window.showToast(errorDetail, "error"), 2000);
+                }
             }
         };
         
@@ -309,6 +328,12 @@
                         if(item) openDetail(openId);
                     }
                 }
+            }, (error) => {
+                console.error("Snapshot error:", error);
+                if(error.code === 'permission-denied') {
+                    window.showToast("Database Permission Denied", "error");
+                    setTimeout(() => window.showToast("Update Firestore Rules in Console", "error"), 2000);
+                }
             });
 
             // Sync Chat
@@ -376,7 +401,10 @@
         }
 
         async function handleRequestItem(itemId) {
-            if (!window.isConfigured || !window.currentUser) return;
+            if (!window.isConfigured || !window.currentUser) {
+                 window.showToast("Not Authenticated", "error");
+                 return;
+            }
             const messageEl = document.getElementById('request-message');
             const message = messageEl ? messageEl.value : '';
             
@@ -391,7 +419,10 @@
                     }) 
                 });
                 window.showToast("Request Sent Live!");
-            } catch (e) { console.error(e); window.showToast("Error sending request", "error"); }
+            } catch (e) { 
+                console.error(e); 
+                window.showToast("Error sending request", "error"); 
+            }
         }
 
         async function handleAcceptRequest(itemId, requesterId) {
@@ -509,7 +540,16 @@
 
         async function submitDonationLive() {
              const title = document.getElementById('input-title').value;
-             if (!title || !state.donationLocation || !window.isConfigured) { window.showToast("Missing info or keys!", "error"); return; }
+             // Ensure user is authenticated before submitting
+             if (!window.currentUser) { 
+                 window.showToast("Not Authenticated!", "error"); 
+                 return; 
+             }
+             if (!title || !state.donationLocation || !window.isConfigured) { 
+                 window.showToast("Missing info or keys!", "error"); 
+                 return; 
+             }
+             
              const hours = parseInt(document.getElementById('input-time').value) || 24;
              const expiresAt = Date.now() + (hours * 3600 * 1000);
              
@@ -529,7 +569,14 @@
                  }); 
                  window.showToast("Item Published to Cloud!"); 
                  setView('browse'); 
-            } catch(e) { console.error(e); }
+            } catch(e) { 
+                console.error(e);
+                if(e.code === 'permission-denied') {
+                    window.showToast("Permission Denied: Check Rules", "error");
+                } else {
+                    window.showToast("Error Publishing", "error");
+                }
+            }
         }
 
         function renderLocationPicker(container) {
