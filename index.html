@@ -51,10 +51,10 @@
         import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, doc, updateDoc, deleteDoc, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ==========================================
-        //  ✅ KEYS REVERTED TO PREVIOUS WORKING VERSION ✅
+        //  ✅ KEYS (Lowercase f - Working Version) ✅
         // ==========================================
         const firebaseConfig = {
-            apiKey: "AIzaSyCXe9sQiA-Z5qQNYHFS1eGDkT366VlHfDI", // Lowercase 'f' restored
+            apiKey: "AIzaSyCXe9sQiA-Z5qQNYHFS1eGDkT366VlHfDI",
             authDomain: "shareplate-6b668.firebaseapp.com",
             projectId: "shareplate-6b668",
             storageBucket: "shareplate-6b668.firebasestorage.app",
@@ -94,17 +94,7 @@
                 window.showToast("Connected Successfully!", "success");
             } catch (error) {
                 console.error("Auth failed", error);
-                let errorMsg = `Error: ${error.code}`;
-                
-                if (error.code === 'auth/api-key-not-valid') {
-                    errorMsg = "INVALID API KEY! Check config.";
-                } else if (error.code === 'auth/network-request-failed') {
-                    errorMsg = "Network Error: Check WiFi/Data";
-                } else if (error.code === 'auth/operation-not-allowed') {
-                    errorMsg = "Enable Anonymous Auth in Console";
-                }
-                
-                window.showToast(errorMsg, "error");
+                window.showToast("Login Failed. Check Config.", "error");
             }
         };
 
@@ -142,9 +132,8 @@
         .font-kurdish { font-family: 'Noto Naskh Arabic', serif; }
         .page-transition { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
         .qr-gradient { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); }
-        /* Map specific styles */
         #map-container { height: 100%; width: 100%; border-radius: 0; z-index: 0; }
-        .leaflet-bottom.leaflet-right { display: none; } /* Hide attribution for cleaner mobile UI */
+        .leaflet-bottom.leaflet-right { display: none; } 
     </style>
 </head>
 <body class="flex justify-center items-center min-h-screen text-slate-800 dark:text-slate-100 transition-colors duration-500 selection:bg-violet-500 selection:text-white sm:p-4 p-0">
@@ -206,18 +195,17 @@
                 <i data-lucide="layout-list" class="w-6 h-6"></i>
                 <span class="text-[9px] font-bold">Activity</span>
             </button>
-            <button onclick="setView('profile')" class="nav-btn w-12 h-12 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-violet-600 transition-colors" id="nav-profile">
-                <i data-lucide="user" class="w-6 h-6"></i>
-                <span class="text-[9px] font-bold">Profile</span>
+            <button onclick="setView('chat')" class="nav-btn w-12 h-12 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-violet-600 transition-colors relative" id="nav-chat">
+                <i data-lucide="message-circle" class="w-6 h-6"></i>
+                <span class="text-[9px] font-bold">Chat</span>
             </button>
         </div>
 
-        <!-- Full Screen Modals - Increased Z-Index to cover Nav Bar -->
-        <div id="modal-layer" class="absolute inset-0 z-[70] pointer-events-none flex items-end justify-center">
+        <!-- Full Screen Modals -->
+        <div id="modal-layer" class="absolute inset-0 z-[100] pointer-events-none flex items-end justify-center">
             <div id="modal-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-300 pointer-events-none" onclick="closeModal()"></div>
             <div id="modal-sheet" class="bg-white dark:bg-slate-800 w-full h-[90%] rounded-t-[32px] shadow-[0_-10px_40px_rgba(0,0,0,0.3)] transform translate-y-full transition-transform duration-300 flex flex-col overflow-hidden pointer-events-auto">
                 <div class="w-12 h-1.5 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mt-4 mb-2 shrink-0"></div>
-                <!-- INCREASED PADDING HERE (pb-44) TO SHOW DELETE BUTTON -->
                 <div id="modal-content" class="flex-1 overflow-y-auto scrollbar-hide p-6 pb-44 overscroll-contain"></div>
             </div>
         </div>
@@ -226,7 +214,7 @@
 
     <script>
         const I18N = { 
-            en: { welcome: "Good Morning", subtitle: "Live Sync Active • PC ⇄ Mobile", donateTitle: "Share Food", itemName: "Item Title", post: "Publish Donation", activity: "My Activity", chat: "Discussion", darkmode: "Dark Mode" }, 
+            en: { welcome: "Good Morning", subtitle: "Live Sync Active • PC ⇄ Mobile", donateTitle: "Share Food", itemName: "Item Title", post: "Publish Donation", activity: "My Activity", chat: "Messages", darkmode: "Dark Mode" }, 
             ku: { welcome: "Beyani Bash", subtitle: "Ba xwardn rizgarkain!", donateTitle: "Bexshini Xwardn", itemName: "Nawi Babat", post: "Bilawkrdnawa", activity: "Chalaki", chat: "Chati Gisti", darkmode: "Tariki" } 
         };
         let state = { 
@@ -240,7 +228,7 @@
             donationCoords: null, // Store actual GPS coords
             items: [], 
             chats: [], 
-            activeChatThread: null,
+            activeChatThread: null, // If null -> Show Inbox. If set -> Show Messages
             initialLoadComplete: false,
             mapInstance: null
         };
@@ -285,24 +273,9 @@
                 
                 if (state.initialLoadComplete) {
                     snapshot.docChanges().forEach((change) => {
-                        // Notify new items
                         if (change.type === "added" && window.currentUser && change.doc.data().authorId !== window.currentUser.uid) {
                             window.showToast(`🔔 New: ${change.doc.data().title} added!`);
                             if (navigator.vibrate) navigator.vibrate(200);
-                        }
-                        
-                        // Notify NEW REQUESTS (Modified item owned by me)
-                        if (change.type === "modified" && window.currentUser && change.doc.data().authorId === window.currentUser.uid) {
-                            const data = change.doc.data();
-                            const requests = data.requests || [];
-                            if (requests.length > 0) {
-                                const lastReq = requests[requests.length - 1];
-                                // Check if recent (within 30 seconds)
-                                if (lastReq.timestamp && (Date.now() - lastReq.timestamp) < 30000) {
-                                    window.showToast(`📩 New Request: ${lastReq.userName}`, "success");
-                                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-                                }
-                            }
                         }
                     });
                 } else { state.initialLoadComplete = true; }
@@ -310,6 +283,7 @@
                 if(state.view === 'browse') renderBrowse(document.getElementById('main-content'));
                 if(state.view === 'map') renderMap(document.getElementById('main-content'));
                 if(state.view === 'activity') renderActivity(document.getElementById('main-content'));
+                if(state.view === 'chat' && state.activeChatThread === null) renderChat(document.getElementById('main-content')); // Update Inbox
                 
                 // Update modal if open
                 const sheet = document.getElementById('modal-sheet');
@@ -329,8 +303,8 @@
                 }
             });
 
-            // Sync Chat
-            const q = window.query(window.collection(db, 'artifacts', appId, 'public', 'data', 'messages'), window.orderBy('timestamp', 'desc'), window.limit(100));
+            // Sync Chat - Grab more messages to populate inbox
+            const q = window.query(window.collection(db, 'artifacts', appId, 'public', 'data', 'messages'), window.orderBy('timestamp', 'desc'), window.limit(200));
             window.onSnapshot(q, (snapshot) => {
                 state.chats = [];
                 snapshot.forEach(doc => { state.chats.push({ id: doc.id, ...doc.data() }); });
@@ -358,6 +332,7 @@
         
         function setView(view) { 
             state.view = view; 
+            // Only reset thread if leaving chat entirely
             if (view !== 'chat') state.activeChatThread = null;
             render(); 
             if (navigator.vibrate) navigator.vibrate(10); 
@@ -415,7 +390,6 @@
                 });
 
                 // 2. Auto-post message to chat thread to start conversation
-                // Always post message now since we have a default
                 await window.addDoc(window.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'messages'), {
                     text: message,
                     senderId: window.currentUser.uid,
@@ -484,7 +458,7 @@
                 case 'pick_location': renderLocationPicker(main); break;
                 case 'activity': renderActivity(main); break; 
                 case 'profile': renderProfile(main); break;
-                case 'chat': renderChat(main); break;
+                case 'chat': renderChat(main); break; // ✅ RE-ADDED CHAT VIEW
             }
             lucide.createIcons();
         }
@@ -545,8 +519,6 @@
                 state.items.forEach(item => {
                     if(item.status !== 'claimed') {
                         let lat, lng;
-                        
-                        // Use real coords if available, otherwise random around Sulaymaniyah
                         if(item.coords) {
                             lat = item.coords.lat;
                             lng = item.coords.lng;
@@ -746,41 +718,87 @@
 
         function renderChat(container) {
             const currentUid = window.currentUser?.uid;
-            // Filter messages: If activeChatThread is set, only show matching. Otherwise show global.
-            const filterId = state.activeChatThread || 'global';
             
+            // --- INBOX VIEW (If no thread selected) ---
+            if (!state.activeChatThread) {
+                // Group active chats
+                const threads = {};
+                // Filter messages to find unique threadIDs (Basic grouping)
+                state.chats.forEach(m => {
+                    if(!m.threadId || m.threadId === 'global') return; // Skip global for now or treat separately
+                    // Only show if I am the sender or the item author (complex in this simplified view, assume public for MVP or check logic)
+                    // MVP: Showing all active item threads for now to ensure visibility
+                    if(!threads[m.threadId]) threads[m.threadId] = m; 
+                });
+                
+                const threadList = Object.keys(threads).map(tid => {
+                    const lastMsg = threads[tid];
+                    const item = state.items.find(i => i.id === tid);
+                    const title = item ? item.title : "Unknown Item";
+                    const icon = item ? item.img : "📦";
+                    
+                    return `
+                    <div onclick="startChat('${tid}')" class="bg-white dark:bg-slate-800 p-4 rounded-2xl mb-2 flex items-center gap-3 shadow-sm cursor-pointer">
+                        <div class="bg-violet-100 dark:bg-slate-700 w-12 h-12 rounded-full flex items-center justify-center text-xl">${icon}</div>
+                        <div class="flex-1 min-w-0">
+                            <div class="font-bold text-sm dark:text-white truncate">${title}</div>
+                            <div class="text-xs text-slate-400 truncate">${lastMsg.text}</div>
+                        </div>
+                        <div class="text-[10px] text-slate-400">${new Date(lastMsg.timestamp?.seconds * 1000 || Date.now()).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                    </div>`;
+                }).join('');
+
+                container.innerHTML = `
+                <div class="flex flex-col h-full">
+                    <div class="px-6 py-6 border-b border-slate-100 dark:border-slate-800">
+                        <h2 class="text-2xl font-black dark:text-white">Messages</h2>
+                        <p class="text-xs text-slate-400">Active Conversations</p>
+                    </div>
+                    <div class="flex-1 overflow-y-auto px-6 pt-4">
+                        ${threadList || '<div class="text-center text-slate-400 py-10">No active chats. Request an item to start!</div>'}
+                        
+                        <!-- Global Room Backup -->
+                        <div onclick="startChat('global')" class="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+                            <div class="bg-slate-50 dark:bg-slate-900 p-4 rounded-2xl flex items-center gap-3">
+                                <div class="bg-slate-200 dark:bg-slate-700 w-10 h-10 rounded-full flex items-center justify-center"><i data-lucide="globe" class="w-5 h-5 text-slate-500"></i></div>
+                                <div class="font-bold text-sm text-slate-500">Global Public Room</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+                return;
+            }
+
+            // --- THREAD VIEW (Existing Logic) ---
+            const filterId = state.activeChatThread;
             const msgs = state.chats
                 .filter(m => (m.threadId || 'global') === filterId)
-                .sort((a,b) => (a.timestamp?.seconds||0) - (b.timestamp?.seconds||0))
-                .map(m => `<div class="flex ${m.senderId === currentUid ? 'justify-end' : 'justify-start'} mb-4 animate-slide-up"><div class="max-w-[80%] ${m.senderId === currentUid ? 'bg-violet-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-white rounded-tl-none border border-slate-100 dark:border-slate-700'} p-3 rounded-2xl shadow-sm"> ${m.senderId !== currentUid ? `<div class="text-[9px] font-bold text-slate-400 dark:text-slate-300 mb-1">${m.senderName}</div>` : ''} <p class="text-sm font-medium">${m.text}</p></div></div>`)
+                .sort((a,b) => (b.timestamp?.seconds||0) - (a.timestamp?.seconds||0))
+                .map(m => `<div class="flex ${m.senderId === currentUid ? 'justify-end' : 'justify-start'} mb-4 animate-slide-up"><div class="max-w-[80%] ${m.senderId === currentUid ? 'bg-violet-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-white rounded-tl-none border border-slate-100 dark:border-slate-700'} p-3 rounded-2xl shadow-sm"> ${m.senderId !== currentUid ? `<div class="text-[9px] font-bold text-slate-400 mb-1">${m.senderName}</div>` : ''} <p class="text-sm font-medium">${m.text}</p></div></div>`)
                 .join('');
             
-            const chatTitle = state.activeChatThread ? `Item Chat` : t('chat');
-            const subTitle = state.activeChatThread ? `Conversation thread` : `Global Public Room`;
-            
-            // Get item info if in thread mode
-            const item = state.activeChatThread ? state.items.find(i => i.id === state.activeChatThread) : null;
+            const activeItem = state.items.find(i => i.id === filterId);
+            const chatTitle = activeItem ? activeItem.title : (filterId === 'global' ? "Global Chat" : "Chat");
 
             container.innerHTML = `
                 <div class="flex flex-col h-full">
-                    <div class="px-6 py-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                        <div class="flex-1">
-                            <h2 class="text-2xl font-black dark:text-white">${chatTitle}</h2>
-                            ${item ? `<p class="text-xs text-slate-400 mt-1">${item.img} ${item.title}</p>` : `<p class="text-xs text-slate-400">${subTitle}</p>`}
+                    <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900 z-10">
+                        <div class="flex items-center gap-3">
+                            <button onclick="setView('chat')" class="p-2 -ml-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"><i data-lucide="arrow-left" class="w-5 h-5 dark:text-white"></i></button>
+                            <div>
+                                <h2 class="text-lg font-black dark:text-white leading-tight">${chatTitle}</h2>
+                                <p class="text-[10px] text-slate-400">Live</p>
+                            </div>
                         </div>
-                        <button onclick="setView('browse')" class="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl text-slate-500 dark:text-slate-400 ml-4">
-                            <i data-lucide="x" class="w-5 h-5"></i>
-                        </button>
                     </div>
-                    <div class="flex-1 overflow-y-auto px-6 flex flex-col-reverse scrollbar-hide pt-4 pb-4">${msgs || '<div class="text-center text-slate-400 py-10">No messages yet.</div>'}</div>
-                    <div class="p-4 glass dark:glass-dark border-t dark:border-slate-700 shrink-0">
-                        <form onsubmit="event.preventDefault(); window.submitMessage()" class="flex gap-2">
+                    <div class="flex-1 overflow-y-auto px-6 flex flex-col-reverse pt-4 bg-slate-50/50 dark:bg-slate-900/50">${msgs || '<div class="text-center text-slate-400 py-10">Say hello! 👋</div>'}</div>
+                    <div class="p-4 glass dark:glass-dark border-t dark:border-slate-700">
+                        <form onsubmit="event.preventDefault(); submitMessage()" class="flex gap-2">
                             <input id="chat-input" type="text" placeholder="Type a message..." class="flex-1 bg-slate-100 dark:bg-slate-700 border-none rounded-xl px-4 py-3 font-bold dark:text-white outline-none focus:ring-2 focus:ring-violet-500">
                             <button type="submit" class="w-12 h-12 bg-violet-600 rounded-xl flex items-center justify-center text-white shadow-lg active:scale-95 transition-transform"><i data-lucide="send"></i></button>
                         </form>
                     </div>
                 </div>`;
-            lucide.createIcons();
         }
 
         function openDetail(id) {
@@ -800,7 +818,7 @@
                 } else { actionArea = `<div class="text-center text-slate-400 text-sm p-10 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center gap-2"><i data-lucide="inbox"></i>No requests yet.</div>`; }
                 
                 // Add Chat Button for Owner
-                actionArea += `<button onclick="startChat('${item.id}')" class="w-full mt-4 border-2 border-violet-600 text-violet-600 dark:text-violet-400 font-bold py-3 rounded-xl hover:bg-violet-50 dark:hover:bg-slate-800 flex justify-center items-center gap-2">💬 Chat with Requesters</button>`;
+                actionArea += `<button onclick="startChat('${item.id}')" class="w-full mt-2 border-2 border-violet-600 text-violet-600 dark:text-violet-400 font-bold py-3 rounded-xl hover:bg-violet-50 dark:hover:bg-slate-800 flex justify-center items-center gap-2">💬 Chat with Requesters</button>`;
                 
                 // Add Delete Button for Owner
                 actionArea += `<button onclick="deleteItem('${item.id}')" class="w-full mt-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold py-4 rounded-2xl hover:bg-red-100 dark:hover:bg-red-900/40 flex justify-center items-center gap-2 transition-colors"><i data-lucide="trash-2" class="w-5 h-5"></i> Delete Donation</button>`;
