@@ -24,18 +24,9 @@
                         'float': 'float 6s ease-in-out infinite',
                     },
                     keyframes: {
-                        slideUp: {
-                            '0%': { transform: 'translateY(20px)', opacity: '0' },
-                            '100%': { transform: 'translateY(0)', opacity: '1' },
-                        },
-                        scaleIn: {
-                            '0%': { transform: 'scale(0.9)', opacity: '0' },
-                            '100%': { transform: 'scale(1)', opacity: '1' },
-                        },
-                        float: {
-                            '0%, 100%': { transform: 'translateY(0)' },
-                            '50%': { transform: 'translateY(-10px)' },
-                        }
+                        slideUp: { '0%': { transform: 'translateY(20px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
+                        scaleIn: { '0%': { transform: 'scale(0.9)', opacity: '0' }, '100%': { transform: 'scale(1)', opacity: '1' } },
+                        float: { '0%, 100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-10px)' } }
                     },
                     colors: {
                         dark: { bg: '#0f172a', card: '#1e293b', text: '#f8fafc' }
@@ -56,43 +47,28 @@
         import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, doc, updateDoc, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ==========================================
-        //  STEP 1: CONFIGURATION
+        //  ✅ KEYS FROM YOUR SCREENSHOT ✅
         // ==========================================
-        let firebaseConfig = {};
-
-        // 1. Try to use the Environment config (For Preview)
-        if (typeof __firebase_config !== 'undefined') {
-            firebaseConfig = JSON.parse(__firebase_config);
-            console.log("Using Environment Config");
-        } else {
-            // 2. 🔴 FOR REAL PC-TO-MOBILE USE: KEYS ADDED FROM SCREENSHOT 🔴
-            firebaseConfig = {
-                apiKey: "AIzaSyCXe9sQiA-Z5qQNYHFS1eGDkT366VlHFDI",
-                authDomain: "shareplate-6b668.firebaseapp.com",
-                projectId: "shareplate-6b668",
-                storageBucket: "shareplate-6b668.firebasestorage.app",
-                messagingSenderId: "468190117194",
-                appId: "1:468190117194:web:9f463d37b7f9aaa27715b3",
-                measurementId: "G-S13DB80B1V"
-            };
-        }
+        const firebaseConfig = {
+            apiKey: "AIzaSyCXe9sQiA-Z5qQNYHFS1eGDkT366VlHFDI",
+            authDomain: "shareplate-6b668.firebaseapp.com",
+            projectId: "shareplate-6b668",
+            storageBucket: "shareplate-6b668.firebasestorage.app",
+            messagingSenderId: "468190117194",
+            appId: "1:468190117194:web:9f463d37b7f9aaa27715b3",
+            measurementId: "G-S13DB80B1V"
+        };
         // ==========================================
 
-        const isConfigured = firebaseConfig.apiKey; 
-        
-        let app, auth, db;
-        
-        if (isConfigured) {
-            app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-        }
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
 
         // Global variables for access
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'shareplate-global-v2';
         window.db = db;
         window.auth = auth;
-        window.signInAnonymously = signInAnonymously; // Expose for retry
+        window.signInAnonymously = signInAnonymously;
         window.signOut = signOut;
         window.appId = appId;
         window.collection = collection;
@@ -102,99 +78,55 @@
         window.arrayUnion = arrayUnion;
         window.onSnapshot = onSnapshot;
         window.serverTimestamp = serverTimestamp;
-        window.isConfigured = isConfigured;
+        window.isConfigured = true;
 
-        // Auth Logic
-        const initAuth = async () => {
-            if (!isConfigured) {
-                setTimeout(() => {
-                    if (document.getElementById('setup-screen')) {
-                        document.getElementById('setup-screen').classList.remove('hidden');
-                        document.getElementById('app-frame').classList.add('hidden');
-                    }
-                }, 100);
-                return;
-            }
-
+        // Force Login Helper
+        window.forceLogin = async () => {
+            window.showToast("Connecting...", "normal");
             try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
+                await signInAnonymously(auth);
+                window.showToast("Connected Successfully!", "success");
             } catch (error) {
                 console.error("Auth failed", error);
                 
-                // Detailed Error Messages for better debugging
-                let errorMsg = "Authentication Failed";
-                let errorDetail = "Check console for details";
+                // Detailed Error Messages
+                let errorMsg = `Error: ${error.code}`;
+                if (error.code === 'auth/api-key-not-valid') {
+                    errorMsg = "INVALID API KEY! Check config.";
+                } else if (error.code === 'auth/network-request-failed') {
+                    errorMsg = "Network Error: Check WiFi/Data";
+                } else if (error.code === 'auth/operation-not-allowed') {
+                    errorMsg = "Enable Anonymous Auth in Console";
+                }
                 
-                if (error.code === 'auth/operation-not-allowed') {
-                    errorMsg = "Setup Required";
-                    errorDetail = "Enable 'Anonymous' in Firebase Console > Authentication > Sign-in method";
-                } else if (error.code === 'auth/unauthorized-domain') {
-                    errorMsg = "Domain Blocked";
-                    errorDetail = "Add this domain to Firebase Console > Authentication > Settings > Authorized domains";
-                } else if (error.code === 'auth/api-key-not-valid') {
-                    errorMsg = "Invalid API Key";
-                    errorDetail = "Check your config keys";
-                }
-
-                if(window.showToast) {
-                    window.showToast(errorMsg, "error");
-                    // Show a second toast with the detail after a short delay
-                    setTimeout(() => window.showToast(errorDetail, "error"), 2000);
-                }
+                window.showToast(errorMsg, "error");
             }
         };
-        
-        initAuth();
 
-        if (isConfigured) {
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const mode = urlParams.get('mode');
-                    
-                    if (mode === 'guest') {
-                        let guestId = sessionStorage.getItem('sp_guest_id');
-                        if (!guestId) {
-                            guestId = 'guest_' + Math.floor(Math.random() * 99999);
-                            sessionStorage.setItem('sp_guest_id', guestId);
-                        }
-                        window.currentUser = { uid: guestId, isAnonymous: true, isVirtual: true };
-                    } else {
-                        window.currentUser = user;
-                    }
-
-                    // Start Listening for Data
-                    if(window.startRealtimeListeners) window.startRealtimeListeners();
-                    
-                    setTimeout(() => {
-                        const status = mode === 'guest' ? "Guest Mode" : "Online";
-                        if(window.showToast) window.showToast(`Connected: ${status}`);
-                        // Update UI to show connected state
-                        const indicator = document.getElementById('connection-indicator');
-                        const statusText = document.getElementById('connection-status-text');
-                        if(indicator) {
-                            indicator.classList.remove('bg-red-500');
-                            indicator.classList.add('bg-emerald-500', 'animate-pulse');
-                        }
-                        if(statusText) statusText.innerText = "Online";
-                        if(window.render) window.render(); 
-                    }, 500);
-                } else {
-                    window.currentUser = null;
-                    const indicator = document.getElementById('connection-indicator');
-                    const statusText = document.getElementById('connection-status-text');
-                    if(indicator) {
-                        indicator.classList.add('bg-red-500');
-                        indicator.classList.remove('bg-emerald-500', 'animate-pulse');
-                    }
-                    if(statusText) statusText.innerText = "Offline";
-                }
-            });
-        }
+        // Auth Logic
+        onAuthStateChanged(auth, (user) => {
+            const indicator = document.getElementById('connection-indicator');
+            const statusText = document.getElementById('connection-status-text');
+            
+            if (user) {
+                window.currentUser = user;
+                if(window.startRealtimeListeners) window.startRealtimeListeners();
+                
+                if(indicator) { indicator.classList.remove('bg-red-500'); indicator.classList.add('bg-emerald-500', 'animate-pulse'); }
+                if(statusText) statusText.innerText = "Online";
+                if(window.render) window.render(); 
+                
+                // Only show toast if we just recovered
+                if(document.getElementById('setup-screen')) window.showToast("Connected Successfully!");
+            } else {
+                window.currentUser = null;
+                if(indicator) { indicator.classList.add('bg-red-500'); indicator.classList.remove('bg-emerald-500', 'animate-pulse'); }
+                if(statusText) statusText.innerText = "Offline";
+                
+                // Try to auto-connect
+                window.forceLogin();
+            }
+        });
     </script>
 
     <style>
@@ -211,23 +143,6 @@
 </head>
 <body class="flex justify-center items-center min-h-screen text-slate-800 dark:text-slate-100 transition-colors duration-500 selection:bg-violet-500 selection:text-white">
 
-    <!-- Setup Screen (Only shows if no keys) -->
-    <div id="setup-screen" class="hidden fixed inset-0 z-50 bg-slate-900 text-white flex flex-col items-center justify-center p-8 text-center">
-        <div class="w-20 h-20 bg-red-500 rounded-2xl flex items-center justify-center mb-6 shadow-red-500/50 shadow-lg">
-            <i data-lucide="key" class="w-10 h-10"></i>
-        </div>
-        <h1 class="text-2xl font-bold mb-2">Configuration Required</h1>
-        <p class="text-slate-400 max-w-md mb-8">To enable PC-to-Mobile sync outside of the preview environment, you need to add your Firebase API keys to the code.</p>
-        <div class="bg-slate-800 p-4 rounded-xl text-left text-xs font-mono text-slate-300 w-full max-w-md overflow-x-auto mb-6">
-            <span class="text-purple-400">const</span> firebaseConfig = {<br>
-            &nbsp;&nbsp;apiKey: <span class="text-green-400">"..."</span>,<br>
-            &nbsp;&nbsp;authDomain: <span class="text-green-400">"..."</span>,<br>
-            &nbsp;&nbsp;projectId: <span class="text-green-400">"..."</span><br>
-            };
-        </div>
-        <p class="text-xs text-slate-500">Edit the file and look for "STEP 1: CONFIGURATION"</p>
-    </div>
-
     <!-- Device Frame -->
     <div id="app-frame" class="w-full max-w-md h-[100dvh] sm:h-[850px] bg-slate-50 dark:bg-slate-900 rounded-none sm:rounded-[40px] shadow-2xl overflow-hidden relative flex flex-col sm:border-[10px] border-slate-900 ring-4 ring-slate-900/50 transition-colors duration-300">
         
@@ -235,9 +150,9 @@
         <div class="h-12 w-full absolute top-0 z-40 flex items-center justify-between px-6 text-xs font-bold text-slate-800 dark:text-white pointer-events-none">
             <span id="clock">9:41</span>
             <div class="flex gap-2 items-center">
-                <div class="flex items-center gap-1 bg-black/10 dark:bg-white/10 px-2 py-0.5 rounded-full backdrop-blur-sm">
+                <div class="flex items-center gap-1 bg-black/10 dark:bg-white/10 px-2 py-0.5 rounded-full backdrop-blur-sm pointer-events-auto cursor-pointer" onclick="window.forceLogin()">
                     <div id="connection-indicator" class="w-2 h-2 rounded-full bg-red-500 transition-colors duration-500"></div>
-                    <span id="connection-status-text" class="text-[9px] font-bold opacity-80">Offline</span>
+                    <span id="connection-status-text" class="text-[9px] font-bold opacity-80 uppercase">Offline</span>
                 </div>
                 <div class="flex gap-1.5 ml-1">
                     <div class="w-4 h-4 rounded-full bg-slate-900 dark:bg-white flex items-center justify-center"><i data-lucide="wifi" class="w-3 h-3 text-white dark:text-slate-900"></i></div>
@@ -322,10 +237,8 @@
                 
                 if (state.initialLoadComplete) {
                     snapshot.docChanges().forEach((change) => {
-                        // Only notify for additions not made by current user
                         if (change.type === "added" && window.currentUser && change.doc.data().authorId !== window.currentUser.uid) {
                             window.showToast(`🔔 New: ${change.doc.data().title} added!`);
-                            // Vibrate if on mobile
                             if (navigator.vibrate) navigator.vibrate(200);
                         }
                     });
@@ -338,7 +251,6 @@
                 if (!sheet.classList.contains('translate-y-full')) {
                     const openId = document.getElementById('modal-content').getAttribute('data-id');
                     if(openId) {
-                        // Re-render modal to show updated requests
                         const item = state.items.find(i => i.id === openId);
                         if(item) openDetail(openId);
                     }
@@ -356,8 +268,6 @@
             window.onSnapshot(q, (snapshot) => {
                 state.chats = [];
                 snapshot.forEach(doc => { state.chats.push({ id: doc.id, ...doc.data() }); });
-                // Reverse for display
-                // state.chats.reverse();
                 if(state.view === 'chat') renderChat(document.getElementById('main-content'));
             });
         };
@@ -416,8 +326,8 @@
         }
 
         async function handleRequestItem(itemId) {
-            if (!window.isConfigured || !window.currentUser) {
-                 window.showToast("Not Authenticated", "error");
+            if (!window.currentUser) {
+                 window.forceLogin();
                  return;
             }
             const messageEl = document.getElementById('request-message');
@@ -496,7 +406,7 @@
         }
 
         function renderLogin(container) {
-            container.innerHTML = `<div class="flex flex-col h-full justify-center px-8 text-center animate-slide-up"><div class="w-28 h-28 bg-gradient-to-tr from-violet-600 to-indigo-600 rounded-[32px] mx-auto mb-8 flex items-center justify-center text-white shadow-2xl shadow-violet-500/30"><i data-lucide="chef-hat" class="w-14 h-14"></i></div><h1 class="text-4xl font-black text-slate-900 dark:text-white mb-2">SharePlate</h1><p class="text-slate-500 dark:text-slate-400 font-medium text-lg mb-10">${t('subtitle')}</p><button onclick="setView('browse'); window.showToast('Ready to Sync!');" class="w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl shadow-xl hover:scale-[1.02] active:scale-95 transition-all">Start Exploring</button></div>`;
+            container.innerHTML = `<div class="flex flex-col h-full justify-center px-8 text-center animate-slide-up"><div class="w-28 h-28 bg-gradient-to-tr from-violet-600 to-indigo-600 rounded-[32px] mx-auto mb-8 flex items-center justify-center text-white shadow-2xl shadow-violet-500/30"><i data-lucide="chef-hat" class="w-14 h-14"></i></div><h1 class="text-4xl font-black text-slate-900 dark:text-white mb-2">SharePlate</h1><p class="text-slate-500 dark:text-slate-400 font-medium text-lg mb-10">${t('subtitle')}</p><button onclick="setView('browse'); window.forceLogin();" class="w-full py-5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl shadow-xl hover:scale-[1.02] active:scale-95 transition-all">Start Exploring</button></div>`;
         }
 
         function renderBrowse(container) {
@@ -555,31 +465,10 @@
 
         async function submitDonationLive() {
              const title = document.getElementById('input-title').value;
-             // Ensure user is authenticated before submitting
-             if (!window.currentUser) { 
-                 window.showToast("⚠️ Reconnecting...", "normal");
-                 try {
-                    await window.signInAnonymously(window.auth);
-                    if (window.auth.currentUser) {
-                        window.currentUser = window.auth.currentUser;
-                        window.showToast("Connected! Try again.", "success");
-                    } else {
-                        throw new Error("Login failed");
-                    }
-                 } catch(e) {
-                     console.error(e);
-                     window.showToast("Login Failed: Check Network", "error");
-                     return;
-                 }
-                 return; // Require user to click again to confirm
-             }
-             if (!title || !state.donationLocation || !window.isConfigured) { 
-                 window.showToast("Missing info or keys!", "error"); 
-                 return; 
-             }
+             if (!window.currentUser) { window.forceLogin(); return; }
+             if (!title || !state.donationLocation) { window.showToast("Missing info!", "error"); return; }
              
              const hours = parseInt(document.getElementById('input-time').value) || 24;
-             const expiresAt = Date.now() + (hours * 3600 * 1000);
              
              try { 
                  await window.addDoc(window.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'items'), { 
@@ -591,20 +480,13 @@
                      bg: 'from-orange-400 to-red-500', 
                      img: '🍲', 
                      timestamp: window.serverTimestamp(), 
-                     expiresAt, 
+                     expiresAt: Date.now() + (hours * 3600 * 1000), 
                      status: 'available', 
                      requests: [] 
                  }); 
                  window.showToast("Item Published to Cloud!"); 
                  setView('browse'); 
-            } catch(e) { 
-                console.error(e);
-                if(e.code === 'permission-denied') {
-                    window.showToast("Permission Denied: Check Rules", "error");
-                } else {
-                    window.showToast("Error Publishing", "error");
-                }
-            }
+            } catch(e) { console.error(e); window.showToast("Publish Failed: " + e.code, "error"); }
         }
 
         function renderLocationPicker(container) {
@@ -613,8 +495,6 @@
 
         function renderProfile(container) {
             const isGuest = new URLSearchParams(window.location.search).get('mode') === 'guest';
-            // Generate QR Code URL using a free API (for display only)
-            // Note: In a real app, you would use the actual current URL
             const currentUrl = window.location.href;
             const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(currentUrl)}`;
             
