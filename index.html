@@ -47,10 +47,10 @@
         import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, doc, updateDoc, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ==========================================
-        //  ✅ KEYS FROM YOUR SCREENSHOT ✅
+        //  ✅ KEYS COPIED EXACTLY FROM YOUR MESSAGE ✅
         // ==========================================
         const firebaseConfig = {
-            apiKey: "AIzaSyCXe9sQiA-Z5qQNYHFS1eGDkT366VlHFDI",
+            apiKey: "AIzaSyCXe9sQiA-Z5qQNYHFS1eGDkT366VlHfDI",
             authDomain: "shareplate-6b668.firebaseapp.com",
             projectId: "shareplate-6b668",
             storageBucket: "shareplate-6b668.firebasestorage.app",
@@ -60,6 +60,7 @@
         };
         // ==========================================
 
+        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
@@ -88,9 +89,8 @@
                 window.showToast("Connected Successfully!", "success");
             } catch (error) {
                 console.error("Auth failed", error);
-                
-                // Detailed Error Messages
                 let errorMsg = `Error: ${error.code}`;
+                
                 if (error.code === 'auth/api-key-not-valid') {
                     errorMsg = "INVALID API KEY! Check config.";
                 } else if (error.code === 'auth/network-request-failed') {
@@ -116,14 +116,12 @@
                 if(statusText) statusText.innerText = "Online";
                 if(window.render) window.render(); 
                 
-                // Only show toast if we just recovered
                 if(document.getElementById('setup-screen')) window.showToast("Connected Successfully!");
             } else {
                 window.currentUser = null;
                 if(indicator) { indicator.classList.add('bg-red-500'); indicator.classList.remove('bg-emerald-500', 'animate-pulse'); }
                 if(statusText) statusText.innerText = "Offline";
                 
-                // Try to auto-connect
                 window.forceLogin();
             }
         });
