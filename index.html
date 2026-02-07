@@ -36,6 +36,10 @@
         }
     </script>
     
+    <!-- Leaflet Map CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
     <!-- Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Noto+Naskh+Arabic:wght@400;700&display=swap" rel="stylesheet">
@@ -44,13 +48,13 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, doc, updateDoc, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, limit, doc, updateDoc, deleteDoc, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ==========================================
-        //  ✅ KEYS COPIED EXACTLY FROM YOUR MESSAGE ✅
+        //  ✅ KEYS REVERTED TO PREVIOUS VERSION ✅
         // ==========================================
         const firebaseConfig = {
-            apiKey: "AIzaSyCXe9sQiA-Z5qQNYHFS1eGDkT366VlHfDI",
+            apiKey: "AIzaSyCXe9sQiA-Z5qQNYHFS1eGDkT366VlHfDI", // Reverted to lowercase 'f'
             authDomain: "shareplate-6b668.firebaseapp.com",
             projectId: "shareplate-6b668",
             storageBucket: "shareplate-6b668.firebasestorage.app",
@@ -75,6 +79,7 @@
         window.collection = collection;
         window.addDoc = addDoc;
         window.updateDoc = updateDoc;
+        window.deleteDoc = deleteDoc;
         window.doc = doc;
         window.arrayUnion = arrayUnion;
         window.onSnapshot = onSnapshot;
@@ -132,17 +137,20 @@
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
         .glass-dark { background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
-        body { background-color: #f8fafc; overflow: hidden; }
+        body { background-color: #f8fafc; overflow: hidden; margin: 0; padding: 0; }
         html.dark body { background-color: #0f172a; }
         .font-kurdish { font-family: 'Noto Naskh Arabic', serif; }
         .page-transition { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
         .qr-gradient { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); }
+        /* Map specific styles */
+        #map-container { height: 100%; width: 100%; border-radius: 0; z-index: 0; }
+        .leaflet-bottom.leaflet-right { display: none; } /* Hide attribution for cleaner mobile UI */
     </style>
 </head>
-<body class="flex justify-center items-center min-h-screen text-slate-800 dark:text-slate-100 transition-colors duration-500 selection:bg-violet-500 selection:text-white">
+<body class="flex justify-center items-center min-h-screen text-slate-800 dark:text-slate-100 transition-colors duration-500 selection:bg-violet-500 selection:text-white sm:p-4 p-0">
 
     <!-- Device Frame -->
-    <div id="app-frame" class="w-full max-w-md h-[100dvh] sm:h-[850px] bg-slate-50 dark:bg-slate-900 rounded-none sm:rounded-[40px] shadow-2xl overflow-hidden relative flex flex-col sm:border-[10px] border-slate-900 ring-4 ring-slate-900/50 transition-colors duration-300">
+    <div id="app-frame" class="w-full sm:max-w-md h-[100dvh] sm:h-[850px] bg-slate-50 dark:bg-slate-900 rounded-none sm:rounded-[40px] shadow-2xl overflow-hidden relative flex flex-col sm:border-[10px] border-slate-900 ring-4 ring-slate-900/50 transition-colors duration-300">
         
         <!-- Status Bar -->
         <div class="h-12 w-full absolute top-0 z-40 flex items-center justify-between px-6 text-xs font-bold text-slate-800 dark:text-white pointer-events-none">
@@ -194,9 +202,9 @@
                     <i data-lucide="plus" class="w-8 h-8 group-hover:rotate-90 transition-transform"></i>
                 </button>
             </div>
-            <button onclick="setView('chat')" class="nav-btn w-12 h-12 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-violet-600 transition-colors relative" id="nav-chat">
-                <i data-lucide="message-circle" class="w-6 h-6"></i>
-                <span class="text-[9px] font-bold">Chat</span>
+            <button onclick="setView('activity')" class="nav-btn w-12 h-12 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-violet-600 transition-colors relative" id="nav-activity">
+                <i data-lucide="layout-list" class="w-6 h-6"></i>
+                <span class="text-[9px] font-bold">Activity</span>
             </button>
             <button onclick="setView('profile')" class="nav-btn w-12 h-12 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-violet-600 transition-colors" id="nav-profile">
                 <i data-lucide="user" class="w-6 h-6"></i>
@@ -204,12 +212,13 @@
             </button>
         </div>
 
-        <!-- Full Screen Modals -->
-        <div id="modal-layer" class="absolute inset-0 z-40 pointer-events-none flex items-end justify-center">
+        <!-- Full Screen Modals - Increased Z-Index to cover Nav Bar -->
+        <div id="modal-layer" class="absolute inset-0 z-[70] pointer-events-none flex items-end justify-center">
             <div id="modal-backdrop" class="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-300 pointer-events-none" onclick="closeModal()"></div>
             <div id="modal-sheet" class="bg-white dark:bg-slate-800 w-full h-[90%] rounded-t-[32px] shadow-[0_-10px_40px_rgba(0,0,0,0.3)] transform translate-y-full transition-transform duration-300 flex flex-col overflow-hidden pointer-events-auto">
                 <div class="w-12 h-1.5 bg-slate-200 dark:bg-slate-600 rounded-full mx-auto mt-4 mb-2 shrink-0"></div>
-                <div id="modal-content" class="flex-1 overflow-y-auto scrollbar-hide p-6"></div>
+                <!-- INCREASED PADDING HERE (pb-44) TO SHOW DELETE BUTTON -->
+                <div id="modal-content" class="flex-1 overflow-y-auto scrollbar-hide p-6 pb-44 overscroll-contain"></div>
             </div>
         </div>
 
@@ -217,17 +226,58 @@
 
     <script>
         const I18N = { 
-            en: { welcome: "Good Morning", subtitle: "Live Sync Active • PC ⇄ Mobile", donateTitle: "Share Food", itemName: "Item Title", post: "Publish Donation", chat: "Global Rescue Chat", darkmode: "Dark Mode" }, 
-            ku: { welcome: "Beyani Bash", subtitle: "Ba xwardn rizgarkain!", donateTitle: "Bexshini Xwardn", itemName: "Nawi Babat", post: "Bilawkrdnawa", chat: "Chati Gisti", darkmode: "Tariki" } 
+            en: { welcome: "Good Morning", subtitle: "Live Sync Active • PC ⇄ Mobile", donateTitle: "Share Food", itemName: "Item Title", post: "Publish Donation", activity: "My Activity", chat: "Discussion", darkmode: "Dark Mode" }, 
+            ku: { welcome: "Beyani Bash", subtitle: "Ba xwardn rizgarkain!", donateTitle: "Bexshini Xwardn", itemName: "Nawi Babat", post: "Bilawkrdnawa", activity: "Chalaki", chat: "Chati Gisti", darkmode: "Tariki" } 
         };
-        let state = { view: 'login', user: null, lang: 'en', darkMode: false, activeCategory: 'All', selectedMapItemId: null, donationLocation: null, items: [], chats: [], initialLoadComplete: false };
+        let state = { 
+            view: 'login', 
+            user: null, 
+            lang: 'en', 
+            darkMode: false, 
+            activeCategory: 'All', 
+            selectedMapItemId: null, 
+            donationLocation: null, 
+            donationCoords: null, // Store actual GPS coords
+            items: [], 
+            chats: [], 
+            activeChatThread: null,
+            initialLoadComplete: false,
+            mapInstance: null
+        };
+
+        window.getLocation = function() {
+            if (navigator.geolocation) {
+                const btn = document.getElementById('btn-get-loc');
+                if(btn) btn.innerHTML = '<i class="animate-spin" data-lucide="loader-2"></i> Finding you...';
+                lucide.createIcons();
+                
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        state.donationCoords = {
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude
+                        };
+                        state.donationLocation = "Current Location";
+                        window.showToast("Location Found!", "success");
+                        render(); // Re-render to update UI
+                    },
+                    (error) => {
+                        console.error(error);
+                        window.showToast("GPS Error: " + error.message, "error");
+                        if(btn) btn.innerHTML = '<i data-lucide="map-pin"></i> Use My Current Location';
+                        lucide.createIcons();
+                    }
+                );
+            } else {
+                window.showToast("Geolocation not supported", "error");
+            }
+        };
 
         window.startRealtimeListeners = function() {
             if (!window.isConfigured) return;
             const db = window.db; const appId = window.appId;
             
             // Sync Items
-            // Using a unique collection for the items
             window.onSnapshot(window.collection(db, 'artifacts', appId, 'public', 'data', 'items'), (snapshot) => {
                 state.items = [];
                 snapshot.forEach(doc => { state.items.push({ id: doc.id, ...doc.data() }); });
@@ -242,7 +292,9 @@
                     });
                 } else { state.initialLoadComplete = true; }
                 
-                if(state.view === 'browse' || state.view === 'map') render();
+                if(state.view === 'browse') renderBrowse(document.getElementById('main-content'));
+                if(state.view === 'map') renderMap(document.getElementById('main-content'));
+                if(state.view === 'activity') renderActivity(document.getElementById('main-content'));
                 
                 // Update modal if open
                 const sheet = document.getElementById('modal-sheet');
@@ -251,6 +303,7 @@
                     if(openId) {
                         const item = state.items.find(i => i.id === openId);
                         if(item) openDetail(openId);
+                        else closeModal(); // Item was deleted
                     }
                 }
             }, (error) => {
@@ -262,7 +315,7 @@
             });
 
             // Sync Chat
-            const q = window.query(window.collection(db, 'artifacts', appId, 'public', 'data', 'messages'), window.orderBy('timestamp', 'desc'), window.limit(50));
+            const q = window.query(window.collection(db, 'artifacts', appId, 'public', 'data', 'messages'), window.orderBy('timestamp', 'desc'), window.limit(100));
             window.onSnapshot(q, (snapshot) => {
                 state.chats = [];
                 snapshot.forEach(doc => { state.chats.push({ id: doc.id, ...doc.data() }); });
@@ -290,6 +343,7 @@
         
         function setView(view) { 
             state.view = view; 
+            if (view !== 'chat') state.activeChatThread = null;
             render(); 
             if (navigator.vibrate) navigator.vibrate(10); 
         }
@@ -312,7 +366,6 @@
             setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'scale(0.9)'; setTimeout(() => el.remove(), 300); }, 3000);
         }
 
-        // --- TIME HELPER ---
         function formatTimeLeft(expiryMs) {
             const now = Date.now();
             const diff = expiryMs - now;
@@ -323,6 +376,7 @@
             return `${minutes}m left`;
         }
 
+        // Updated: Auto-inject message into chat
         async function handleRequestItem(itemId) {
             if (!window.currentUser) {
                  window.forceLogin();
@@ -332,6 +386,7 @@
             const message = messageEl ? messageEl.value : '';
             
             try {
+                // 1. Add request to item document
                 const itemRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'items', itemId);
                 await window.updateDoc(itemRef, { 
                     requests: window.arrayUnion({ 
@@ -341,7 +396,23 @@
                         timestamp: Date.now() 
                     }) 
                 });
-                window.showToast("Request Sent Live!");
+
+                // 2. Auto-post message to chat thread to start conversation
+                if (message) {
+                    await window.addDoc(window.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'messages'), {
+                        text: message,
+                        senderId: window.currentUser.uid,
+                        senderName: `User ${window.currentUser.uid.slice(0,4)}`,
+                        timestamp: window.serverTimestamp(),
+                        threadId: itemId // Link to this item's chat
+                    });
+                }
+
+                window.showToast("Request Sent & Chat Started!");
+                
+                // Optional: Open chat immediately
+                // startChat(itemId);
+                
             } catch (e) { 
                 console.error(e); 
                 window.showToast("Error sending request", "error"); 
@@ -358,21 +429,19 @@
             } catch (e) { console.error(e); }
         }
 
-        async function submitMessage() {
-            const input = document.getElementById('chat-input');
-            const text = input.value.trim();
-            if(!text || !window.currentUser) return;
-            
-            input.value = ''; // Clear immediately
+        // New function to delete an item
+        async function deleteItem(itemId) {
+            if(!confirm("Are you sure you want to delete this item?")) return;
             
             try {
-                await window.addDoc(window.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'messages'), {
-                    text,
-                    senderId: window.currentUser.uid,
-                    senderName: `User ${window.currentUser.uid.slice(0,4)}`,
-                    timestamp: window.serverTimestamp()
-                });
-            } catch(e) { console.error(e); }
+                const itemRef = window.doc(window.db, 'artifacts', window.appId, 'public', 'data', 'items', itemId);
+                await window.deleteDoc(itemRef);
+                window.showToast("Item Deleted Successfully!");
+                closeModal();
+            } catch(e) {
+                console.error(e);
+                window.showToast("Delete Failed: " + e.message, "error");
+            }
         }
 
         function render() {
@@ -397,8 +466,9 @@
                 case 'map': renderMap(main); break;
                 case 'donate': renderDonate(main); break;
                 case 'pick_location': renderLocationPicker(main); break;
-                case 'chat': renderChat(main); break;
+                case 'activity': renderActivity(main); break; 
                 case 'profile': renderProfile(main); break;
+                case 'chat': renderChat(main); break; // ✅ RE-ADDED CHAT VIEW
             }
             lucide.createIcons();
         }
@@ -408,11 +478,18 @@
         }
 
         function renderBrowse(container) {
-            const filteredItems = state.items.filter(i => state.activeCategory === 'All' || i.type === state.activeCategory);
+            // Filter out claimed items from the main browse feed
+            const filteredItems = state.items.filter(i => 
+                (state.activeCategory === 'All' || i.type === state.activeCategory) && 
+                i.status !== 'claimed' // ✅ HIDE CLAIMED ITEMS
+            );
             let itemsHtml = filteredItems.map(item => {
                 const isClaimed = item.status === 'claimed';
                 const timeLeft = item.expiresAt ? formatTimeLeft(item.expiresAt) : 'Unknown';
-                return `<div class="bg-white dark:bg-slate-800 rounded-[32px] p-4 shadow-sm border border-slate-100 dark:border-slate-700/50 mb-4 animate-scale-in relative group ${isClaimed ? 'opacity-50 grayscale' : ''}" onclick="openDetail('${item.id}')"><div class="flex gap-4"><div class="w-28 h-28 rounded-2xl bg-gradient-to-br ${item.bg || 'from-gray-400 to-slate-500'} flex items-center justify-center text-5xl shadow-inner shrink-0 relative overflow-hidden">${item.img}${isClaimed ? `<div class="absolute inset-0 bg-black/50 flex items-center justify-center text-xs font-black text-white uppercase -rotate-12 tracking-widest border-2 border-white">CLAIMED</div>` : ''}</div><div class="flex-1 py-1 flex flex-col justify-between"><div><div class="flex justify-between items-start"><span class="text-[10px] font-extrabold tracking-wider uppercase text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-lg">${item.type}</span><span class="text-[10px] font-bold ${timeLeft === 'Expired' ? 'text-red-500' : 'text-emerald-500'}">${timeLeft}</span></div><h3 class="font-bold text-lg text-slate-800 dark:text-white leading-tight mt-1 mb-1">${item.title}</h3><p class="text-xs font-medium text-slate-500 dark:text-slate-400">By ${item.author || 'Anon'}</p></div><div class="flex justify-between items-end"><div class="flex items-center gap-1 text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-2 py-1 rounded-lg"><i data-lucide="map-pin" class="w-3 h-3"></i> ${item.locationName ? item.locationName.split(' ')[0] : 'Nearby'}</div><div class="font-bold text-emerald-600 dark:text-emerald-400">Free</div></div></div></div></div>`;
+                const priceDisplay = item.price && item.price > 0 ? `$${item.price}` : 'Free';
+                const priceColor = item.price && item.price > 0 ? 'text-slate-900 dark:text-white' : 'text-emerald-600 dark:text-emerald-400';
+
+                return `<div class="bg-white dark:bg-slate-800 rounded-[32px] p-4 shadow-sm border border-slate-100 dark:border-slate-700/50 mb-4 animate-scale-in relative group ${isClaimed ? 'opacity-50 grayscale' : ''}" onclick="openDetail('${item.id}')"><div class="flex gap-4"><div class="w-28 h-28 rounded-2xl bg-gradient-to-br ${item.bg || 'from-gray-400 to-slate-500'} flex items-center justify-center text-5xl shadow-inner shrink-0 relative overflow-hidden">${item.img}${isClaimed ? `<div class="absolute inset-0 bg-black/50 flex items-center justify-center text-xs font-black text-white uppercase -rotate-12 tracking-widest border-2 border-white">CLAIMED</div>` : ''}</div><div class="flex-1 py-1 flex flex-col justify-between"><div><div class="flex justify-between items-start"><span class="text-[10px] font-extrabold tracking-wider uppercase text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-lg">${item.type}</span><span class="text-[10px] font-bold ${timeLeft === 'Expired' ? 'text-red-500' : 'text-emerald-500'}">${timeLeft}</span></div><h3 class="font-bold text-lg text-slate-800 dark:text-white leading-tight mt-1 mb-1">${item.title}</h3><p class="text-xs font-medium text-slate-500 dark:text-slate-400">By ${item.author || 'Anon'}</p></div><div class="flex justify-between items-end"><div class="flex items-center gap-1 text-xs font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-2 py-1 rounded-lg"><i data-lucide="map-pin" class="w-3 h-3"></i> ${item.locationName ? item.locationName.split(' ')[0] : 'Nearby'}</div><div class="font-bold ${priceColor}">${priceDisplay}</div></div></div></div></div>`;
             }).join('');
             
             container.innerHTML = `
@@ -432,49 +509,98 @@
         }
 
         function renderMap(container) {
-            const itemsToShow = state.items.filter(i => (state.activeCategory === 'All' || i.type === state.activeCategory) && i.status !== 'claimed');
-            const activeItem = state.selectedMapItemId ? state.items.find(i => i.id === state.selectedMapItemId) : null;
+            container.innerHTML = `<div id="map-container" class="w-full h-full relative z-0"></div>`;
+            
+            setTimeout(() => {
+                if (state.mapInstance) {
+                    state.mapInstance.remove();
+                }
+                
+                // Centered on Sulaymaniyah, Iraq [35.557, 45.435]
+                const map = L.map('map-container', { zoomControl: false }).setView([35.557, 45.435], 13);
+                
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                    subdomains: 'abcd',
+                    maxZoom: 20
+                }).addTo(map);
 
-            container.innerHTML = `
-                <div class="w-full h-full relative bg-slate-100 dark:bg-slate-900 overflow-hidden group">
-                    <div class="absolute inset-0 opacity-10 dark:opacity-20 pointer-events-none" style="background-image: linear-gradient(rgba(99, 102, 241, 0.2) 1px, transparent 1px), linear-gradient(90deg, rgba(99, 102, 241, 0.2) 1px, transparent 1px); background-size: 40px 40px;"></div>
-                    <svg id="map-routes" class="absolute inset-0 w-full h-full pointer-events-none z-0"></svg>
-                    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full border border-violet-500/10 dark:border-violet-400/10 animate-[spin_8s_linear_infinite] pointer-events-none"><div class="w-1/2 h-1/2 bg-gradient-to-br from-transparent to-violet-500/10 rounded-tl-full"></div></div>
-                    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20">
-                        <div class="relative"><div class="w-16 h-16 bg-violet-500/20 rounded-full animate-pulse absolute -top-4 -left-4"></div><div class="w-8 h-8 bg-violet-600 rounded-full border-4 border-white dark:border-slate-900 shadow-xl flex items-center justify-center relative z-10"><i data-lucide="navigation" class="w-3 h-3 text-white fill-current"></i></div></div>
-                    </div>
-                    ${itemsToShow.map(i => {
-                        if (!i.coords) { const h = i.id.split('').reduce((a,b)=>a+b.charCodeAt(0),0); i.coords = { top: 20 + (h % 60), left: 10 + (h % 80) }; }
-                        return `<div class="absolute transition-all duration-500 z-30" style="top: ${i.coords.top}%; left: ${i.coords.left}%; transform: translate(-50%, -100%) ${state.selectedMapItemId === i.id ? 'scale(1.2)' : 'scale(1)'};" onclick="handleMapPinClick('${i.id}', ${i.coords.top}, ${i.coords.left})"><div class="flex flex-col items-center group"><div class="w-12 h-12 rounded-full bg-gradient-to-br ${i.bg || 'from-gray-400 to-gray-600'} border-4 ${state.selectedMapItemId === i.id ? 'border-violet-500' : 'border-white dark:border-slate-800'} shadow-xl flex items-center justify-center text-xl relative z-10 hover:scale-110 transition-transform cursor-pointer">${i.img}</div><div class="w-1 h-3 bg-slate-400 dark:bg-slate-600 rounded-full -mt-1"></div><div class="w-8 h-2 bg-black/20 blur-sm rounded-full mt-[-2px]"></div></div></div>`;
-                    }).join('')}
-                    ${activeItem ? `<div class="absolute bottom-24 left-4 right-4 z-40 animate-slide-up"><div class="bg-white dark:bg-slate-800 p-4 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 flex gap-4 items-center relative overflow-hidden"><div class="w-16 h-16 rounded-2xl bg-gradient-to-br ${activeItem.bg} flex items-center justify-center text-3xl shrink-0">${activeItem.img}</div><div class="flex-1 min-w-0"><h3 class="font-bold text-slate-900 dark:text-white truncate">${activeItem.title}</h3><p class="text-xs text-slate-500 dark:text-slate-400 truncate">${activeItem.author}</p></div><button onclick="openDetail('${activeItem.id}')" class="w-10 h-10 bg-slate-900 dark:bg-white rounded-full flex items-center justify-center text-white dark:text-slate-900 shadow-lg active:scale-90 transition-transform"><i data-lucide="arrow-right" class="w-5 h-5"></i></button><button onclick="state.selectedMapItemId=null; render()" class="absolute top-2 right-2 text-slate-400 p-1"><i data-lucide="x" class="w-4 h-4"></i></button></div></div>` : ''}
-                </div>
-            `;
-            if(activeItem) setTimeout(() => drawRoute(activeItem.coords), 50);
+                // Add pins for items
+                state.items.forEach(item => {
+                    if(item.status !== 'claimed') {
+                        let lat, lng;
+                        
+                        // Use real coords if available, otherwise random around Sulaymaniyah
+                        if(item.coords) {
+                            lat = item.coords.lat;
+                            lng = item.coords.lng;
+                        } else {
+                            // Sulaymaniyah base: 35.557, 45.435
+                            lat = 35.557 + (parseInt(item.id.slice(-2), 16) % 20 - 10) * 0.005;
+                            lng = 45.435 + (parseInt(item.id.slice(-4, -2), 16) % 20 - 10) * 0.005;
+                        }
+                        
+                        const marker = L.marker([lat, lng]).addTo(map);
+                        
+                        const priceDisplay = item.price && item.price > 0 ? `$${item.price}` : 'Free';
+                        const popupContent = `
+                            <div class="text-center">
+                                <div class="text-3xl mb-1">${item.img}</div>
+                                <b>${item.title}</b><br>
+                                <span class="text-xs text-slate-500">${priceDisplay}</span><br>
+                                <button onclick="window.openDetail('${item.id}')" class="mt-2 bg-slate-900 text-white text-xs px-2 py-1 rounded">View</button>
+                            </div>
+                        `;
+                        marker.bindPopup(popupContent);
+                    }
+                });
+                
+                state.mapInstance = map;
+            }, 100);
         }
-
-        function handleMapPinClick(id, top, left) { state.selectedMapItemId = id; render(); }
-        function drawRoute(t) { const s = document.getElementById('map-routes'); if(!s) return; s.innerHTML = `<defs><linearGradient id="g"><stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.2"/><stop offset="100%" stop-color="#8b5cf6" stop-opacity="1"/></linearGradient></defs><line x1="50%" y1="50%" x2="${t.left}%" y2="${t.top}%" stroke="url(#g)" stroke-width="4" stroke-dasharray="8,8" stroke-linecap="round" class="animate-pulse" /><circle cx="${t.left}%" cy="${t.top}%" r="4" fill="#8b5cf6" class="animate-ping" />`; }
 
         function renderDonate(container) {
             const loc = state.donationLocation;
-            container.innerHTML = `<div class="p-6 h-full flex flex-col animate-slide-up"><h2 class="text-2xl font-black text-slate-900 dark:text-white mb-6">${t('donateTitle')}</h2><div class="flex-1 space-y-6"><div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Pick Location</label><div onclick="setView('pick_location')" class="w-full h-32 rounded-3xl border-2 ${loc ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/10' : 'border-dashed border-slate-300 dark:border-slate-700'} flex flex-col items-center justify-center gap-2 text-slate-400 cursor-pointer transition-all hover:bg-slate-50 dark:hover:bg-slate-800">${loc ? `<span class="text-sm font-bold text-violet-700 dark:text-violet-400">${loc}</span>` : `<i data-lucide="map" class="w-6 h-6"></i><span class="text-xs font-bold">Choose on Map</span>`}</div></div><div><label class="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">${t('itemName')}</label><input id="input-title" type="text" placeholder="e.g. Leftover Pizza" class="w-full bg-white dark:bg-slate-800 border-none shadow-sm rounded-2xl py-4 px-4 font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-violet-500 transition-all"></div><div class="grid grid-cols-2 gap-4"><div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Type</label><select id="input-type" class="w-full bg-white dark:bg-slate-800 border-none rounded-2xl py-4 px-4 font-bold dark:text-white outline-none"><option>Meals</option><option>Bakery</option><option>Grocery</option></select></div><div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Hours Available</label><input id="input-time" type="number" value="24" class="w-full bg-white dark:bg-slate-800 border-none rounded-2xl py-4 px-4 font-bold dark:text-white outline-none"></div></div><button onclick="submitDonationLive()" class="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl shadow-xl mt-auto active:scale-95 transition-transform">Publish Donation</button></div></div>`;
+            container.innerHTML = `<div class="p-6 h-full flex flex-col animate-slide-up"><h2 class="text-2xl font-black text-slate-900 dark:text-white mb-6">${t('donateTitle')}</h2><div class="flex-1 space-y-6">
+            
+            <div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Location</label>
+            <button id="btn-get-loc" onclick="window.getLocation()" class="w-full h-16 rounded-2xl border-2 ${loc ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/10 text-violet-600' : 'border-dashed border-slate-300 dark:border-slate-700 text-slate-400'} flex items-center justify-center gap-2 font-bold transition-all hover:bg-slate-50 dark:hover:bg-slate-800">
+                ${loc ? `<i data-lucide="map-pin"></i> ${loc}` : `<i data-lucide="crosshair"></i> Use My Current Location`}
+            </button>
+            </div>
+            
+            <div><label class="block text-xs font-bold text-slate-400 uppercase mb-2 ml-1">${t('itemName')}</label><input id="input-title" type="text" placeholder="e.g. Leftover Pizza" class="w-full bg-white dark:bg-slate-800 border-none shadow-sm rounded-2xl py-4 px-4 font-bold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-violet-500 transition-all"></div>
+            
+            <div class="grid grid-cols-2 gap-4">
+                <div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Type</label><select id="input-type" class="w-full bg-white dark:bg-slate-800 border-none rounded-2xl py-4 px-4 font-bold dark:text-white outline-none"><option>Meals</option><option>Bakery</option><option>Grocery</option></select></div>
+                <div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Price (0 = Free)</label><input id="input-price" type="number" value="0" class="w-full bg-white dark:bg-slate-800 border-none rounded-2xl py-4 px-4 font-bold dark:text-white outline-none"></div>
+            </div>
+            
+            <div><label class="block text-xs font-bold text-slate-400 uppercase mb-2">Hours Available</label><input id="input-time" type="number" value="24" class="w-full bg-white dark:bg-slate-800 border-none rounded-2xl py-4 px-4 font-bold dark:text-white outline-none"></div></div><button onclick="submitDonationLive()" class="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl shadow-xl mt-auto active:scale-95 transition-transform">Publish Donation</button></div></div>`;
         }
 
         async function submitDonationLive() {
              const title = document.getElementById('input-title').value;
              if (!window.currentUser) { window.forceLogin(); return; }
-             if (!title || !state.donationLocation) { window.showToast("Missing info!", "error"); return; }
+             // Ensure location is set (either manual or GPS)
+             if (!title || (!state.donationLocation && !state.donationCoords)) { window.showToast("Missing info or location!", "error"); return; }
              
              const hours = parseInt(document.getElementById('input-time').value) || 24;
+             const price = parseInt(document.getElementById('input-price').value) || 0;
+             
+             // Default to Sulaymaniyah center if GPS failed but user proceeded
+             const finalCoords = state.donationCoords || { lat: 35.557, lng: 45.435 };
+             const finalLocName = state.donationLocation || "Sulaymaniyah";
              
              try { 
                  await window.addDoc(window.collection(window.db, 'artifacts', window.appId, 'public', 'data', 'items'), { 
                      title, 
                      type: document.getElementById('input-type').value, 
+                     price: price,
                      author: `User ${window.currentUser.uid.slice(0,4)}`, 
                      authorId: window.currentUser.uid, 
-                     locationName: state.donationLocation, 
+                     locationName: finalLocName, 
+                     coords: finalCoords, // Save GPS coords
                      bg: 'from-orange-400 to-red-500', 
                      img: '🍲', 
                      timestamp: window.serverTimestamp(), 
@@ -540,28 +666,131 @@
             `;
         }
 
+        // Replaces Global Chat with Activity Dashboard
+        function renderActivity(container) {
+            const currentUid = window.currentUser?.uid;
+            const myItems = state.items.filter(i => i.authorId === currentUid);
+            const myClaims = state.items.filter(i => i.claimedBy === currentUid);
+
+            let myItemsHtml = myItems.length ? myItems.map(i => `
+                <div class="bg-white dark:bg-slate-800 p-4 rounded-2xl mb-2 flex justify-between items-center shadow-sm">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">${i.img}</span>
+                        <div>
+                            <div class="font-bold text-sm dark:text-white">${i.title}</div>
+                            <div class="text-[10px] text-slate-400">${new Date(i.timestamp?.seconds * 1000).toLocaleDateString()}</div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="openDetail('${i.id}')" class="bg-slate-100 dark:bg-slate-700 p-2 rounded-xl text-slate-500"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                    </div>
+                </div>`).join('') : '<div class="text-center text-slate-400 text-xs py-4">You haven\'t shared anything yet.</div>';
+
+            let myClaimsHtml = myClaims.length ? myClaims.map(i => `
+                <div class="bg-violet-50 dark:bg-violet-900/20 p-4 rounded-2xl mb-2 flex justify-between items-center border border-violet-100 dark:border-violet-800">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl">${i.img}</span>
+                        <div>
+                            <div class="font-bold text-sm dark:text-white">${i.title}</div>
+                            <div class="text-[10px] text-violet-500 font-bold">Claimed</div>
+                        </div>
+                    </div>
+                    <button onclick="openDetail('${i.id}')" class="bg-white dark:bg-slate-800 p-2 rounded-xl text-violet-500 shadow-sm"><i data-lucide="arrow-right" class="w-4 h-4"></i></button>
+                </div>`).join('') : '<div class="text-center text-slate-400 text-xs py-4">You haven\'t claimed anything yet.</div>';
+
+            container.innerHTML = `
+                <div class="p-6 h-full flex flex-col">
+                    <h2 class="text-2xl font-black dark:text-white mb-6">My Activity</h2>
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-8">
+                        <div class="bg-violet-600 text-white p-4 rounded-3xl shadow-lg shadow-violet-500/30">
+                            <div class="text-3xl font-black">${myItems.length}</div>
+                            <div class="text-xs font-medium opacity-80">Items Shared</div>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 border dark:border-slate-700 p-4 rounded-3xl shadow-sm">
+                            <div class="text-3xl font-black text-slate-900 dark:text-white">${myClaims.length}</div>
+                            <div class="text-xs font-medium text-slate-400">Items Rescued</div>
+                        </div>
+                    </div>
+
+                    <h3 class="text-sm font-bold text-slate-400 uppercase mb-3">My Shared Items</h3>
+                    <div class="mb-6">${myItemsHtml}</div>
+
+                    <h3 class="text-sm font-bold text-slate-400 uppercase mb-3">My Claims</h3>
+                    <div>${myClaimsHtml}</div>
+                </div>
+            `;
+        }
+
+        window.startChat = (itemId) => {
+            state.activeChatThread = itemId;
+            closeModal();
+            setView('chat');
+        };
+
         function renderChat(container) {
             const currentUid = window.currentUser?.uid;
-            const msgs = state.chats.sort((a,b) => (b.timestamp?.seconds||0) - (a.timestamp?.seconds||0)).map(m => `<div class="flex ${m.senderId === currentUid ? 'justify-end' : 'justify-start'} mb-4 animate-slide-up"><div class="max-w-[80%] ${m.senderId === currentUid ? 'bg-violet-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-white rounded-tl-none border border-slate-100 dark:border-slate-700'} p-3 rounded-2xl shadow-sm"> ${m.senderId !== currentUid ? `<div class="text-[9px] font-bold text-slate-400 mb-1">${m.senderName}</div>` : ''} <p class="text-sm font-medium">${m.text}</p></div></div>`).join('');
-            container.innerHTML = `<div class="flex flex-col h-full"><div class="px-6 py-6"><h2 class="text-2xl font-black dark:text-white">${t('chat')}</h2></div><div class="flex-1 overflow-y-auto px-6 flex flex-col-reverse">${msgs || '<div class="text-center text-slate-400 py-10">No messages yet.</div>'}</div><div class="p-4 glass dark:glass-dark border-t dark:border-slate-700"><form onsubmit="event.preventDefault(); submitMessage()" class="flex gap-2"><input id="chat-input" type="text" placeholder="Type a message..." class="flex-1 bg-slate-100 dark:bg-slate-700 border-none rounded-xl px-4 py-3 font-bold dark:text-white outline-none focus:ring-2 focus:ring-violet-500"><button type="submit" class="w-12 h-12 bg-violet-600 rounded-xl flex items-center justify-center text-white shadow-lg active:scale-95 transition-transform"><i data-lucide="send"></i></button></form></div></div>`;
+            // Filter messages: If activeChatThread is set, only show matching. Otherwise show global.
+            const filterId = state.activeChatThread || 'global';
+            
+            const msgs = state.chats
+                .filter(m => (m.threadId || 'global') === filterId)
+                .sort((a,b) => (b.timestamp?.seconds||0) - (a.timestamp?.seconds||0))
+                .map(m => `<div class="flex ${m.senderId === currentUid ? 'justify-end' : 'justify-start'} mb-4 animate-slide-up"><div class="max-w-[80%] ${m.senderId === currentUid ? 'bg-violet-600 text-white rounded-tr-none' : 'bg-white dark:bg-slate-800 dark:text-white rounded-tl-none border border-slate-100 dark:border-slate-700'} p-3 rounded-2xl shadow-sm"> ${m.senderId !== currentUid ? `<div class="text-[9px] font-bold text-slate-400 mb-1">${m.senderName}</div>` : ''} <p class="text-sm font-medium">${m.text}</p></div></div>`)
+                .join('');
+            
+            const chatTitle = state.activeChatThread ? `Item Chat` : t('chat');
+            const subTitle = state.activeChatThread ? `Private thread for this item` : `Global Public Room`;
+
+            container.innerHTML = `
+                <div class="flex flex-col h-full">
+                    <div class="px-6 py-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                        <div>
+                            <h2 class="text-2xl font-black dark:text-white">${chatTitle}</h2>
+                            <p class="text-xs text-slate-400">${subTitle}</p>
+                        </div>
+                        <button onclick="setView('browse')" class="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl text-slate-500 dark:text-slate-400">
+                            <i data-lucide="x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto px-6 flex flex-col-reverse pt-4">${msgs || '<div class="text-center text-slate-400 py-10">No messages yet.</div>'}</div>
+                    <div class="p-4 glass dark:glass-dark border-t dark:border-slate-700">
+                        <form onsubmit="event.preventDefault(); submitMessage()" class="flex gap-2">
+                            <input id="chat-input" type="text" placeholder="Type a message..." class="flex-1 bg-slate-100 dark:bg-slate-700 border-none rounded-xl px-4 py-3 font-bold dark:text-white outline-none focus:ring-2 focus:ring-violet-500">
+                            <button type="submit" class="w-12 h-12 bg-violet-600 rounded-xl flex items-center justify-center text-white shadow-lg active:scale-95 transition-transform"><i data-lucide="send"></i></button>
+                        </form>
+                    </div>
+                </div>`;
         }
 
         function openDetail(id) {
             const item = state.items.find(i => i.id === id);
             if (!item || !window.currentUser) return;
+            // Expose globally for map button
+            window.openDetail = openDetail; 
+            
             const isOwner = item.authorId === window.currentUser.uid;
             const timeLeft = item.expiresAt ? formatTimeLeft(item.expiresAt) : 'Unknown';
+            const priceDisplay = item.price && item.price > 0 ? `$${item.price}` : 'Free';
             
             let actionArea = '';
             if (isOwner) {
                 if (item.requests?.length > 0) {
                     actionArea = `<h3 class="font-bold dark:text-white mb-3">Incoming Requests</h3>` + item.requests.map(req => `<div class="flex flex-col bg-slate-50 dark:bg-slate-700/50 p-4 rounded-2xl mb-3 border dark:border-slate-700"><div class="flex justify-between items-start mb-2"><span class="text-sm font-bold dark:text-white">👤 ${req.userName}</span></div><div class="bg-white dark:bg-slate-800 p-3 rounded-xl text-xs dark:text-slate-300 italic mb-3">"${req.message || 'Interested in this item.'}"</div><button onclick="handleAcceptRequest('${item.id}', '${req.userId}')" class="w-full bg-violet-600 text-white text-sm font-bold py-3 rounded-xl hover:bg-violet-700 shadow-md flex justify-center items-center gap-2">Accept Request <i data-lucide="check" class="w-4 h-4"></i></button></div>`).join('');
                 } else { actionArea = `<div class="text-center text-slate-400 text-sm p-10 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl flex flex-col items-center gap-2"><i data-lucide="inbox"></i>No requests yet.</div>`; }
+                
+                // Add Chat Button for Owner
+                actionArea += `<button onclick="startChat('${item.id}')" class="w-full mt-2 border-2 border-violet-600 text-violet-600 dark:text-violet-400 font-bold py-3 rounded-xl hover:bg-violet-50 dark:hover:bg-slate-800 flex justify-center items-center gap-2">💬 Chat with Requesters</button>`;
+                
+                // Add Delete Button for Owner
+                actionArea += `<button onclick="deleteItem('${item.id}')" class="w-full mt-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold py-4 rounded-2xl hover:bg-red-100 dark:hover:bg-red-900/40 flex justify-center items-center gap-2 transition-colors"><i data-lucide="trash-2" class="w-5 h-5"></i> Delete Donation</button>`;
             } else {
                 const hasRequested = item.requests?.some(r => r.userId === window.currentUser.uid);
-                if (item.status === 'claimed') actionArea = `<div class="bg-slate-100 dark:bg-slate-800 p-4 rounded-2xl text-center text-slate-400 font-bold">Item Already Claimed</div>`;
-                else if (hasRequested) actionArea = `<div class="bg-violet-50 dark:bg-violet-900/20 p-4 rounded-2xl text-center text-violet-600 font-bold border border-violet-100 flex items-center justify-center gap-2 animate-pulse"><i data-lucide="clock" class="w-5 h-5"></i> Request Pending...</div>`;
-                else actionArea = `
+                
+                let mainButton = '';
+                if (item.status === 'claimed') mainButton = `<div class="bg-slate-100 dark:bg-slate-800 p-4 rounded-2xl text-center text-slate-400 font-bold">Item Already Claimed</div>`;
+                else if (hasRequested) mainButton = `<div class="bg-violet-50 dark:bg-violet-900/20 p-4 rounded-2xl text-center text-violet-600 font-bold border border-violet-100 flex items-center justify-center gap-2 animate-pulse"><i data-lucide="clock" class="w-5 h-5"></i> Request Pending...</div>`;
+                else mainButton = `
                     <div class="bg-slate-50 dark:bg-slate-700/30 p-4 rounded-2xl mb-4 border border-slate-200 dark:border-slate-700">
                         <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Message to Owner</label>
                         <textarea id="request-message" rows="2" class="w-full bg-white dark:bg-slate-800 p-3 rounded-xl text-sm font-medium text-slate-700 dark:text-white placeholder-slate-400 outline-none border border-slate-100 dark:border-slate-600 focus:border-violet-500 transition-colors resize-none" placeholder="Is this still available?"></textarea>
@@ -569,6 +798,12 @@
                     <button onclick="handleRequestItem('${item.id}')" class="w-full py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-2xl shadow-xl flex items-center justify-center gap-2 text-lg active:scale-95 transition-transform">
                         Send Request <i data-lucide="send" class="w-5 h-5"></i>
                     </button>
+                `;
+
+                // Add Chat Button for Requester
+                actionArea = `
+                    ${mainButton}
+                    <button onclick="startChat('${item.id}')" class="w-full mt-4 bg-violet-100 dark:bg-slate-700 text-violet-700 dark:text-violet-300 font-bold py-3 rounded-xl flex justify-center items-center gap-2 hover:bg-violet-200">💬 Message Owner</button>
                 `;
             }
 
@@ -582,7 +817,7 @@
                 </div>
                 <div class="flex justify-between items-start mb-2">
                     <h2 class="text-3xl font-black text-slate-900 dark:text-white">${item.title}</h2>
-                    <div class="text-xl font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-3 py-1 rounded-xl">Free</div>
+                    <div class="text-xl font-bold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/30 px-3 py-1 rounded-xl">${priceDisplay}</div>
                 </div>
                 <p class="text-lg font-medium text-slate-500 dark:text-slate-400 mb-6">By ${item.author} • <span class="${timeLeft === 'Expired' ? 'text-red-500' : 'text-emerald-500'} font-bold">${timeLeft}</span></p>
                 ${actionArea}
